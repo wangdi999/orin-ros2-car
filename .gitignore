@@ -1,0 +1,13 @@
+node_modules/
+dist/
+logs/
+*.log
+.env
+.env.*
+.tmp/
+.remote-check/
+
+smart-car-console/local-config.json
+smart-car-console/node_modules/
+smart-car-console/dist/
+smart-car-console/logs/
