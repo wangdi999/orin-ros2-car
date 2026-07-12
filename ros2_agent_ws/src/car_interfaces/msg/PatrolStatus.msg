@@ -1,0 +1,10 @@
+std_msgs/Header header
+string task_id
+string state
+int32 current_index
+int32 total_waypoints
+string current_location_id
+string current_location_name
+string nav_status
+string last_error_code
+string last_error_message

@@ -1,0 +1,25 @@
+locations:
+  - location_id: home
+    display_name: 起点
+    x: 0.0
+    y: 0.0
+    yaw: 0.0
+    enabled: true
+    description: 演示起点，坐标必须在实车地图完成后更新
+    priority: 0
+  - location_id: east_gate
+    display_name: 东门
+    x: 1.0
+    y: 0.0
+    yaw: 0.0
+    enabled: false
+    description: 占位坐标，实车标定前保持禁用
+    priority: 10
+  - location_id: parking_area
+    display_name: 停车场
+    x: 2.0
+    y: 0.0
+    yaw: 0.0
+    enabled: false
+    description: 占位坐标，实车标定前保持禁用
+    priority: 20

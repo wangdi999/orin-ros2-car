@@ -1,0 +1,13 @@
+std_msgs/Header header
+string alarm_id
+string task_id
+string danger_type
+float32 confidence
+float64 pos_x
+float64 pos_y
+int32 bbox_x
+int32 bbox_y
+int32 bbox_w
+int32 bbox_h
+string image_path
+string source

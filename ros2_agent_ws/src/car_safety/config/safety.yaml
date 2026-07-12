@@ -1,0 +1,8 @@
+safety_supervisor:
+  ros__parameters:
+    max_linear_x: 0.10
+    max_linear_y: 0.10
+    max_angular_z: 0.30
+    teleop_timeout_ms: 450
+    nav_timeout_ms: 500
+    output_hz: 20.0

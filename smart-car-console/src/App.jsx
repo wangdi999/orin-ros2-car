@@ -80,7 +80,14 @@ const defaultConfig = {
     maxLinearMps: 0.35,
     maxAngularRps: 1.2,
     deadZone: 0.05,
-    watchdogMs: 450
+    watchdogMs: 450,
+    commandTopic: '/cmd_vel'
+  },
+  agent: {
+    host: '',
+    port: 8100,
+    tokenSet: false,
+    requestTimeoutMs: 20000
   }
 };
 
@@ -827,7 +834,11 @@ function ConfigDialog({ config, onClose, onSaved }) {
     sshUser: config.car.sshUser,
     sshPassword: '',
     sshHostKey: config.car.sshHostKey,
-    plinkPath: config.car.plinkPath
+    plinkPath: config.car.plinkPath,
+    commandTopic: config.control.commandTopic || '/cmd_vel',
+    agentHost: config.agent?.host || '',
+    agentPort: config.agent?.port || 8100,
+    agentToken: ''
   });
   const [saving, setSaving] = useState(false);
 
@@ -845,6 +856,14 @@ function ConfigDialog({ config, onClose, onSaved }) {
             sshPassword: form.sshPassword,
             sshHostKey: form.sshHostKey,
             plinkPath: form.plinkPath
+          },
+          control: {
+            commandTopic: form.commandTopic
+          },
+          agent: {
+            host: form.agentHost,
+            port: Number(form.agentPort),
+            token: form.agentToken
           }
         })
       });
@@ -879,6 +898,25 @@ function ConfigDialog({ config, onClose, onSaved }) {
         <label>
           <span>Plink 路径</span>
           <input value={form.plinkPath} onChange={(event) => setForm({ ...form, plinkPath: event.target.value })} />
+        </label>
+        <label>
+          <span>速度命令 Topic</span>
+          <select value={form.commandTopic} onChange={(event) => setForm({ ...form, commandTopic: event.target.value })}>
+            <option value="/cmd_vel">/cmd_vel（旧遥控链路）</option>
+            <option value="/cmd_vel_teleop">/cmd_vel_teleop（Safety Supervisor）</option>
+          </select>
+        </label>
+        <label>
+          <span>Agent 主机</span>
+          <input placeholder="留空则使用小车 IP" value={form.agentHost} onChange={(event) => setForm({ ...form, agentHost: event.target.value })} />
+        </label>
+        <label>
+          <span>Agent 端口</span>
+          <input type="number" min="1" max="65535" value={form.agentPort} onChange={(event) => setForm({ ...form, agentPort: event.target.value })} />
+        </label>
+        <label>
+          <span>Agent Token</span>
+          <input type="password" placeholder={config.agent?.tokenSet ? '已保存 Token' : ''} value={form.agentToken} onChange={(event) => setForm({ ...form, agentToken: event.target.value })} />
         </label>
         <div className="dialog-actions">
           <button type="button" onClick={onClose}>取消</button>
