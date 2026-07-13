@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Protocol
 
 import httpx
@@ -142,4 +143,75 @@ class OpenAICompatiblePlanProvider:
             response.raise_for_status()
         payload = response.json()
         content = payload["choices"][0]["message"]["content"]
-        return PatrolPlan.model_validate_json(content)
+        return PatrolPlan.model_validate(
+            _normalize_plan_payload(
+                content,
+                user_request=user_request,
+            )
+        )
+
+
+def _normalize_plan_payload(content: str, *, user_request: str) -> dict:
+    payload = json.loads(_strip_json_fence(content))
+    if not isinstance(payload, dict):
+        raise ValueError("LLM plan response must be a JSON object")
+
+    waypoints = payload.get("waypoints", [])
+    if isinstance(waypoints, list):
+        waypoints = [_waypoint_id(item) for item in waypoints]
+        waypoints = [item for item in waypoints if item]
+    else:
+        waypoints = []
+
+    if not waypoints:
+        for key in ("location_id", "start_location_id", "target_location_id"):
+            value = payload.get(key)
+            if isinstance(value, str) and value:
+                waypoints.append(value)
+                break
+
+    return_home = payload.get("return_home", False)
+    if not isinstance(return_home, bool):
+        return_home = str(return_home).strip().lower() in {"true", "yes", "1", "是", "返回"}
+    start_location = payload.get("start_location_id")
+    end_location = payload.get("end_location_id")
+    if isinstance(start_location, str) and start_location and start_location == end_location:
+        return_home = True
+    if "返回起点" in user_request or "回到起点" in user_request:
+        return_home = True
+
+    event_policy = payload.get("event_policy", {})
+    if not isinstance(event_policy, dict):
+        event_policy = {}
+
+    return {
+        "name": _string_value(payload.get("name") or payload.get("task_name"), "自然语言巡检任务"),
+        "waypoints": waypoints,
+        "event_policy": event_policy,
+        "return_home": return_home,
+        "summary": _string_value(
+            payload.get("summary") or payload.get("task_summary"),
+            user_request,
+        ),
+    }
+
+
+def _strip_json_fence(content: str) -> str:
+    text = content.strip()
+    match = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+    return match.group(1).strip() if match else text
+
+
+def _waypoint_id(item: object) -> str | None:
+    if isinstance(item, str):
+        return item
+    if isinstance(item, dict):
+        for key in ("location_id", "id", "name"):
+            value = item.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return None
+
+
+def _string_value(value: object, fallback: str) -> str:
+    return value if isinstance(value, str) and value.strip() else fallback
