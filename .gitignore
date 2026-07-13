@@ -18,3 +18,24 @@ deploy_*.py
 smart-car-console/node_modules/
 smart-car-console/dist/
 smart-car-console/logs/
+
+# Python / Agent Runtime
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+agent-runtime/data/*.db
+agent-runtime/data/*.db-*
+agent-runtime/data/images/*
+agent-runtime/data/reports/*
+!agent-runtime/data/images/.gitkeep
+!agent-runtime/data/reports/.gitkeep
+
+# ROS2 workspaces
+ros2_agent_ws/build/
+ros2_agent_ws/install/
+ros2_agent_ws/log/
+
+# Local deployment tools and keys
+.tools/

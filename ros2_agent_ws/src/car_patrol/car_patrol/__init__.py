@@ -1,0 +1,1 @@
+"""Patrol Manager package."""

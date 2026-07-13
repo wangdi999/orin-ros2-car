@@ -18,7 +18,14 @@ const defaults = {
     maxLinearMps: 0.35,
     maxAngularRps: 1.2,
     deadZone: 0.05,
-    watchdogMs: 450
+    watchdogMs: 450,
+    commandTopic: '/cmd_vel'
+  },
+  agent: {
+    host: '',
+    port: 8100,
+    token: '',
+    requestTimeoutMs: 20000
   }
 };
 
@@ -33,6 +40,10 @@ function mergeConfig(config) {
     control: {
       ...defaults.control,
       ...(config?.control ?? {})
+    },
+    agent: {
+      ...defaults.agent,
+      ...(config?.agent ?? {})
     }
   };
 }
@@ -68,7 +79,13 @@ export function publicConfig() {
       sshHostKey: config.car.sshHostKey,
       plinkPath: config.car.plinkPath
     },
-    control: config.control
+    control: config.control,
+    agent: {
+      host: config.agent.host,
+      port: config.agent.port,
+      tokenSet: Boolean(config.agent.token),
+      requestTimeoutMs: config.agent.requestTimeoutMs
+    }
   };
 }
 

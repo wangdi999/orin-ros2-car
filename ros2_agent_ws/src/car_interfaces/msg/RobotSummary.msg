@@ -1,0 +1,15 @@
+std_msgs/Header header
+bool gateway_online
+bool chassis_online
+bool lidar_online
+bool camera_online
+bool nav2_ready
+bool yolo_online
+bool emergency_stopped
+string active_task_id
+string active_task_state
+int32 current_waypoint_index
+string current_location_id
+float64 pose_x
+float64 pose_y
+float64 pose_yaw

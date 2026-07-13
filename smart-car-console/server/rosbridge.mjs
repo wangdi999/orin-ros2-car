@@ -92,7 +92,8 @@ export class RosbridgeClient extends EventEmitter {
   }
 
   publishTwist(twist) {
-    return this.publish('/cmd_vel', 'geometry_msgs/Twist', twist);
+    const topic = this.getConfig().control.commandTopic || '/cmd_vel';
+    return this.publish(topic, 'geometry_msgs/Twist', twist);
   }
 
   emergencyStop(repeat = 4) {

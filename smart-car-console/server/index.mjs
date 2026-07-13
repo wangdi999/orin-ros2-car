@@ -3,6 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
+import { bridgeAgentEvents, proxyAgentHttp } from './agentProxy.mjs';
 import { buildTwistFromDriveInput, isZeroTwist, ZERO_TWIST } from './control.mjs';
 import { getConfig, loadConfig, publicConfig, saveConfig } from './config.mjs';
 import { RosbridgeClient } from './rosbridge.mjs';
@@ -46,16 +47,23 @@ const server = http.createServer(async (req, res) => {
 });
 
 const telemetryWss = new WebSocketServer({ noServer: true });
+const agentEventsWss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (url.pathname !== '/api/telemetry') {
-    socket.destroy();
+  if (url.pathname === '/api/telemetry') {
+    telemetryWss.handleUpgrade(req, socket, head, (ws) => {
+      telemetryWss.emit('connection', ws, req);
+    });
     return;
   }
-  telemetryWss.handleUpgrade(req, socket, head, (ws) => {
-    telemetryWss.emit('connection', ws, req);
-  });
+  if (url.pathname === '/api/agent/events') {
+    agentEventsWss.handleUpgrade(req, socket, head, (ws) => {
+      agentEventsWss.emit('connection', ws, req);
+    });
+    return;
+  }
+  socket.destroy();
 });
 
 telemetryWss.on('connection', (ws) => {
@@ -73,6 +81,10 @@ telemetryWss.on('connection', (ws) => {
     bus.off('log', onLog);
     void emergencyStop('Telemetry WebSocket disconnected');
   });
+});
+
+agentEventsWss.on('connection', (ws) => {
+  bridgeAgentEvents(ws, getConfig, addLog);
 });
 
 server.listen(apiPort, '127.0.0.1', () => {
@@ -95,6 +107,10 @@ process.on('SIGINT', async () => {
 });
 
 async function handleApi(req, res, url) {
+  if (url.pathname === '/api/agent/health' || url.pathname.startsWith('/api/agent/')) {
+    proxyAgentHttp(req, res, url, getConfig, addLog);
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/api/config') {
     json(res, 200, { ok: true, config: publicConfig() });
     return;
@@ -111,6 +127,11 @@ async function handleApi(req, res, url) {
       control: {
         ...current.control,
         ...body.control
+      },
+      agent: {
+        ...current.agent,
+        ...body.agent,
+        token: body.agent?.token || current.agent.token
       }
     };
     await saveConfig(next);

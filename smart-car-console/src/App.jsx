@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keyboardVectorFromCodes, isDriveKeyCode } from './keyboardDrive.js';
+import AgentWorkspace from './AgentWorkspace.jsx';
 
 const emptyState = {
   runtime: {
@@ -80,7 +81,14 @@ const defaultConfig = {
     maxLinearMps: 0.35,
     maxAngularRps: 1.2,
     deadZone: 0.05,
-    watchdogMs: 450
+    watchdogMs: 450,
+    commandTopic: '/cmd_vel'
+  },
+  agent: {
+    host: '',
+    port: 8100,
+    tokenSet: false,
+    requestTimeoutMs: 20000
   }
 };
 
@@ -90,6 +98,7 @@ export default function App() {
   const [connection, setConnection] = useState('connecting');
   const [busy, setBusy] = useState(null);
   const [configOpen, setConfigOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   const [linearLimit, setLinearLimit] = useState(0.18);
   const [angularLimit, setAngularLimit] = useState(0.7);
   const [driveVector, setDriveVector] = useState({ forward: 0, turn: 0, strafe: 0 });
@@ -211,10 +220,10 @@ export default function App() {
   }, [canDrive, sendDrive]);
 
   useEffect(() => {
-    if (!keyboardActive || !canDrive || configOpen) return undefined;
+    if (!keyboardActive || !canDrive || configOpen || agentOpen) return undefined;
     const interval = setInterval(() => sendKeyboardVector(), 120);
     return () => clearInterval(interval);
-  }, [canDrive, configOpen, keyboardActive, sendKeyboardVector]);
+  }, [agentOpen, canDrive, configOpen, keyboardActive, sendKeyboardVector]);
 
   useEffect(() => {
     function isEditableTarget(target) {
@@ -227,7 +236,7 @@ export default function App() {
       }
     }
     async function handleKeyDown(event) {
-      if (isEditableTarget(event.target) || configOpen) return;
+      if (isEditableTarget(event.target) || configOpen || agentOpen) return;
       if (event.code === 'Space') {
         event.preventDefault();
         if (!event.repeat) {
@@ -260,7 +269,7 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', resetKeys);
     };
-  }, [configOpen, postAction, sendKeyboardVector, stopDrive]);
+  }, [agentOpen, configOpen, postAction, sendKeyboardVector, stopDrive]);
 
   const topMetrics = useMemo(() => ([
     { label: '小车 IP', value: config.car.host, tone: 'teal' },
@@ -270,6 +279,17 @@ export default function App() {
     { label: '摄像头', value: status.ports.video6500 ? '视频就绪' : '无视频流', tone: status.ports.video6500 ? 'green' : 'amber' },
     { label: '主车电量', value: formatBatterySummary(telemetry.voltage), tone: telemetry.voltage.connected ? 'green' : 'muted' }
   ]), [config.car.host, state.runtime.rosbridge.connected, status, telemetry.voltage]);
+
+  if (agentOpen) {
+    return (
+      <AgentWorkspace
+        onClose={() => setAgentOpen(false)}
+        onEmergency={() => postAction('/api/emergency-stop', 'stop')}
+        robotSnapshot={state}
+        config={config}
+      />
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -284,6 +304,14 @@ export default function App() {
           ))}
         </div>
         <div className="top-actions">
+          <button
+            className="ai-entry-button"
+            onClick={() => { stopDrive(); setAgentOpen(true); }}
+            title="智能巡检任务中心"
+            type="button"
+          >
+            AI 巡检
+          </button>
           <button className="icon-button danger" onClick={() => postAction('/api/emergency-stop', 'stop')} title="急停">
             <Icon name="stop" />
           </button>
@@ -827,7 +855,11 @@ function ConfigDialog({ config, onClose, onSaved }) {
     sshUser: config.car.sshUser,
     sshPassword: '',
     sshHostKey: config.car.sshHostKey,
-    plinkPath: config.car.plinkPath
+    plinkPath: config.car.plinkPath,
+    commandTopic: config.control.commandTopic || '/cmd_vel',
+    agentHost: config.agent?.host || '',
+    agentPort: config.agent?.port || 8100,
+    agentToken: ''
   });
   const [saving, setSaving] = useState(false);
 
@@ -845,6 +877,14 @@ function ConfigDialog({ config, onClose, onSaved }) {
             sshPassword: form.sshPassword,
             sshHostKey: form.sshHostKey,
             plinkPath: form.plinkPath
+          },
+          control: {
+            commandTopic: form.commandTopic
+          },
+          agent: {
+            host: form.agentHost,
+            port: Number(form.agentPort),
+            token: form.agentToken
           }
         })
       });
@@ -879,6 +919,25 @@ function ConfigDialog({ config, onClose, onSaved }) {
         <label>
           <span>Plink 路径</span>
           <input value={form.plinkPath} onChange={(event) => setForm({ ...form, plinkPath: event.target.value })} />
+        </label>
+        <label>
+          <span>速度命令 Topic</span>
+          <select value={form.commandTopic} onChange={(event) => setForm({ ...form, commandTopic: event.target.value })}>
+            <option value="/cmd_vel">/cmd_vel（旧遥控链路）</option>
+            <option value="/cmd_vel_teleop">/cmd_vel_teleop（Safety Supervisor）</option>
+          </select>
+        </label>
+        <label>
+          <span>Agent 主机</span>
+          <input placeholder="留空则使用小车 IP" value={form.agentHost} onChange={(event) => setForm({ ...form, agentHost: event.target.value })} />
+        </label>
+        <label>
+          <span>Agent 端口</span>
+          <input type="number" min="1" max="65535" value={form.agentPort} onChange={(event) => setForm({ ...form, agentPort: event.target.value })} />
+        </label>
+        <label>
+          <span>Agent Token</span>
+          <input type="password" placeholder={config.agent?.tokenSet ? '已保存 Token' : ''} value={form.agentToken} onChange={(event) => setForm({ ...form, agentToken: event.target.value })} />
         </label>
         <div className="dialog-actions">
           <button type="button" onClick={onClose}>取消</button>

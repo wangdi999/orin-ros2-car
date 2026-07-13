@@ -10,6 +10,13 @@
     "maxLinearMps": 0.35,
     "maxAngularRps": 1.2,
     "deadZone": 0.05,
-    "watchdogMs": 450
+    "watchdogMs": 450,
+    "commandTopic": "/cmd_vel"
+  },
+  "agent": {
+    "host": "",
+    "port": 8100,
+    "token": "",
+    "requestTimeoutMs": 20000
   }
 }
