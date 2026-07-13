@@ -1,0 +1,80 @@
+name: CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Container image tag to publish.
+        required: true
+        default: dev
+      push_latest:
+        description: Also publish the latest tag.
+        required: true
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "agent-runtime-v*"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: cd-agent-runtime-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/orin-car-agent-runtime
+
+jobs:
+  publish-agent-runtime:
+    name: Publish Agent Runtime Image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare image tags
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag="${GITHUB_REF_NAME#agent-runtime-v}"
+          else
+            tag="${{ inputs.image_tag }}"
+          fi
+
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE_NAME}:${tag}"
+            echo "${IMAGE_NAME}:sha-${GITHUB_SHA::12}"
+            if [[ "${{ inputs.push_latest || false }}" == "true" ]]; then
+              echo "${IMAGE_NAME}:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: agent-runtime
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
