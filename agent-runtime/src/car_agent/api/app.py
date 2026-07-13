@@ -15,6 +15,7 @@ from car_agent.api.events import EventHub
 from car_agent.clients.llm_client import MockPlanProvider, OpenAICompatiblePlanProvider
 from car_agent.clients.ros_gateway import InMemoryRobotGateway
 from car_agent.config import Settings, get_settings
+from car_agent.features.alarm_reports import register_alarm_report_routes
 from car_agent.graph.builder import GraphServices, build_patrol_graph
 from car_agent.models.api import (
     AgentRequest,
@@ -292,6 +293,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         await events.broadcast("SAFETY_STOPPED" if body.active else "SAFETY_CLEARED", result)
         return result
+
+    register_alarm_report_routes(app, settings, authorize, events, database)
 
     @app.websocket("/api/v1/events")
     async def websocket_events(websocket: WebSocket) -> None:
