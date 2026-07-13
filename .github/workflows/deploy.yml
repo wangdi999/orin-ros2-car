@@ -1,0 +1,32 @@
+name: Deploy to Jetson
+
+on:
+  push:
+    branches: [member-b]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy source code to Jetson
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.JETSON_HOST }}
+          username: jetson
+          password: ${{ secrets.JETSON_PASSWORD }}
+          source: "smart_car_ws/src/,start_ai_all.sh,start_ai_viewer.sh,start_camera.py"
+          target: "~/"
+
+      - name: Rebuild and restart AI services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.JETSON_HOST }}
+          username: jetson
+          password: ${{ secrets.JETSON_PASSWORD }}
+          script: |
+            cd ~/smart_car_ws
+            source /opt/ros/foxy/setup.bash
+            colcon build --packages-select car_ai_vision car_interfaces
+            bash ~/start_ai_all.sh
