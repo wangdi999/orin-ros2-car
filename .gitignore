@@ -7,7 +7,14 @@ logs/
 .tmp/
 .remote-check/
 
+wddocs/
 smart-car-console/local-config.json
+.jetson_pw
+check_jetson.py
+check_jetson2.py
+check_ros2_avail.py
+install_ros2_jetson.py
+deploy_*.py
 smart-car-console/node_modules/
 smart-car-console/dist/
 smart-car-console/logs/

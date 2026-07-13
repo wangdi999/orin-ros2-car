@@ -70,7 +70,7 @@ const emptyState = {
 
 const defaultConfig = {
   car: {
-    host: '192.168.43.205',
+    host: '192.168.160.196',
     sshUser: 'jetson',
     sshPasswordSet: false,
     sshHostKey: '',

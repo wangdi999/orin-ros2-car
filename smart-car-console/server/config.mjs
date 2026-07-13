@@ -8,9 +8,9 @@ const examplePath = path.join(rootDir, 'local-config.example.json');
 
 const defaults = {
   car: {
-    host: '192.168.43.205',
+    host: '192.168.160.196',
     sshUser: 'jetson',
-    sshPassword: '',
+    sshPassword: 'yahboom',
     sshHostKey: 'SHA256:AJffjk3YWwStux7ZbdKdft3teC8b7Jsubuvv4zMYuD8',
     plinkPath: 'D:\\putty\\plink.exe'
   },

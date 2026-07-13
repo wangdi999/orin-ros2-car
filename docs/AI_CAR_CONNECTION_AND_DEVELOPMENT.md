@@ -70,9 +70,9 @@
 
 | 项目 | 默认值 |
 | --- | --- |
-| Wi-Fi 名称 | `ohcar` |
+| Wi-Fi 名称 | `ohcar9`（2026-07 换新车后变更，旧车为 `ohcar`） |
 | Wi-Fi 密码 | 本地私有配置，不提交仓库 |
-| 常见小车 IP | `192.168.43.205` |
+| 常见小车 IP | `192.168.160.196`（以小车屏幕显示 `MY_IP` 为准） |
 | SSH 用户 | `jetson` |
 | SSH 密码 | 本地私有配置，不提交仓库 |
 | VNC 密码 | 本地私有配置，不提交仓库 |
@@ -97,27 +97,27 @@
 ```powershell
 cd D:\code\project\smart-car-remote-control-20260707
 netsh wlan add profile filename="wifi\ohcar_wifi_profile.xml"
-netsh wlan connect name=ohcar
+netsh wlan connect name=ohcar9
 ```
 
 ## 5. 连接小车
 
 1. 给小车上电，等待 Ubuntu 桌面和终端启动完成。
-2. 确认小车连接到 `ohcar`，或电脑和小车处于同一网段。
-3. 在小车屏幕或 VNC 里的终端确认当前 IP。常见显示为 `MY_IP: 192.168.43.205`。
+2. 确认小车连接到 `ohcar9`，或电脑和小车处于同一网段。
+3. 在小车屏幕或 VNC 里的终端确认当前 IP。常见显示为 `MY_IP: 192.168.160.196`。
 4. 在 Windows PowerShell 检查连通性：
 
 ```powershell
-ping 192.168.43.205
-Test-NetConnection 192.168.43.205 -Port 22
-Test-NetConnection 192.168.43.205 -Port 5900
+ping 192.168.160.196
+Test-NetConnection 192.168.160.196 -Port 22
+Test-NetConnection 192.168.160.196 -Port 5900
 ```
 
 5. 使用 VNC 连接小车桌面：
 
 ```powershell
 cd D:\code\project\smart-car-remote-control-20260707
-.\scripts\connect_car_vnc.ps1 -CarIp 192.168.43.205
+.\scripts\connect_car_vnc.ps1 -CarIp 192.168.160.196
 ```
 
 6. VNC 密码使用本地私有设备密码。
@@ -322,9 +322,9 @@ npm run build
 推荐流程：
 
 ```powershell
-scp -r .\ros2_car_remote_ws\src\icar_ctrl jetson@192.168.43.205:/home/jetson/remote_ws_src/
-scp -r .\ros2_car_remote_ws\src\icar_bringup jetson@192.168.43.205:/home/jetson/remote_ws_src/
-ssh jetson@192.168.43.205
+scp -r .\ros2_car_remote_ws\src\icar_ctrl jetson@192.168.160.196:/home/jetson/remote_ws_src/
+scp -r .\ros2_car_remote_ws\src\icar_bringup jetson@192.168.160.196:/home/jetson/remote_ws_src/
+ssh jetson@192.168.160.196
 ```
 
 在小车 Jetson 上：

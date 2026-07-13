@@ -389,7 +389,8 @@ echo 'stop-issued'
 }
 
 function remoteEmergencyStopScript() {
-  const twist = JSON.stringify(ZERO_TWIST).replaceAll('"', '\\"');
+  // 使用 YAML 格式避免 JSON 在 shell 多层转义中损坏
+  const twistYaml = '"{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"';
   return `
 set +e
 ${commonContainerLookup()}
@@ -398,6 +399,6 @@ if [ -z "$cid" ]; then
   echo 'No running icar container for fallback /cmd_vel publish' >&2
   exit 20
 fi
-docker exec "$cid" bash -lc "for setup in /opt/ros/foxy/setup.bash /root/icar_ros2_ws/icar_ws/install/setup.bash /root/icar_ros2_ws/software/library_ws/install/setup.bash /root/ros2_ws/install/setup.bash; do [ -f \\"\\$setup\\" ] && source \\"\\$setup\\"; done; timeout 3 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist \\"${twist}\\""
+docker exec "$cid" bash -lc "for setup in /opt/ros/foxy/setup.bash /root/icar_ros2_ws/icar_ws/install/setup.bash /root/icar_ros2_ws/software/library_ws/install/setup.bash /root/ros2_ws/install/setup.bash; do [ -f \\"\\$setup\\" ] && source \\"\\$setup\\"; done; timeout 3 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist ${twistYaml}"
 `;
 }
