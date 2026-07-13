@@ -21,8 +21,11 @@ concurrency:
 
 jobs:
   vision-python-lint:
-    name: Vision Python Lint
+    name: Vision Python Lint & Test
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: smart_car_ws
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -32,15 +35,18 @@ jobs:
         with:
           python-version: "3.8"
 
-      - name: Install flake8
-        run: python -m pip install flake8
+      - name: Install dependencies
+        run: python -m pip install flake8 pytest numpy
 
       - name: Run flake8
         run: |
-          flake8 smart_car_ws/src/ \
+          flake8 src/ \
             --select=E9,F63,F7,F82 \
             --show-source \
             --statistics
+
+      - name: Test
+        run: pytest -q
 
   agent-runtime:
     name: Agent Runtime
@@ -100,7 +106,7 @@ jobs:
         run: npm run build
 
   ros2-agent-ws:
-    name: ROS2 Foxy Build
+    name: ROS2 Foxy Build & Test
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -118,6 +124,7 @@ jobs:
               apt-get install -y --no-install-recommends \
                 python3-colcon-common-extensions \
                 python3-yaml \
+                python3-pytest \
                 ros-foxy-launch-ros \
                 ros-foxy-nav2-msgs \
                 ros-foxy-rosidl-default-generators
@@ -125,4 +132,28 @@ jobs:
               source /opt/ros/foxy/setup.bash
               set -u
               colcon build --symlink-install
+              pytest -q
             '
+
+  integration:
+    name: Cross-Module Integration
+    runs-on: ubuntu-24.04
+    needs:
+      - vision-python-lint
+      - agent-runtime
+      - smart-car-console
+      - ros2-agent-ws
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: python -m pip install pytest numpy PyYAML
+
+      - name: Run integration tests
+        run: pytest -q tests/integration
