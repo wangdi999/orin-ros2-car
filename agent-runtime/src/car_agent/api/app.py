@@ -13,7 +13,7 @@ from langgraph.types import Command
 
 from car_agent.api.events import EventHub
 from car_agent.clients.llm_client import MockPlanProvider, OpenAICompatiblePlanProvider
-from car_agent.clients.ros_gateway import InMemoryRobotGateway
+from car_agent.clients.ros_gateway import HttpRobotGateway, InMemoryRobotGateway
 from car_agent.clients.tts_client import TtsNotifier
 from car_agent.config import Settings, get_settings
 from car_agent.features.alarm_reports import register_alarm_report_routes
@@ -77,11 +77,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     database = Database(settings.database_path)
     database.sync_locations_from_yaml(settings.locations_path)
-    gateway = InMemoryRobotGateway()
-    if settings.gateway_mode != "mock":
+    if settings.gateway_mode == "mock":
+        gateway = InMemoryRobotGateway()
+    elif settings.gateway_mode == "http_rosbridge":
+        gateway = HttpRobotGateway(
+            base_url=settings.ros_gateway_base_url,
+            timeout_sec=settings.ros_gateway_timeout_sec,
+        )
+    else:
         raise RuntimeError(
-            "rosbridge gateway is intentionally disabled until the real car "
-            "service contract is confirmed"
+            "CAR_AGENT_GATEWAY_MODE=rosbridge is reserved; use http_rosbridge "
+            "with the host-side ROS gateway bridge"
         )
 
     if settings.llm_provider == "openai_compatible":

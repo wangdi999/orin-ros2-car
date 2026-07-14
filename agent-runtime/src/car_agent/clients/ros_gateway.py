@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Protocol
 
+import httpx
+
 from car_agent.models.plan import PatrolPlan, RobotSummary
 
 
@@ -15,6 +17,67 @@ class RobotGateway(Protocol):
     async def control_patrol(self, task_id: str, operation: str, reason: str = "") -> dict: ...
 
     async def set_emergency_stop(self, active: bool, reason: str = "") -> dict: ...
+
+
+class HttpRobotGateway:
+    def __init__(self, *, base_url: str, timeout_sec: float) -> None:
+        if not base_url:
+            raise ValueError("ROS gateway base URL is required")
+        self.base_url = base_url.rstrip("/")
+        self.timeout_sec = timeout_sec
+
+    async def get_robot_summary(self) -> RobotSummary:
+        payload = await self._request("GET", "/api/v1/robot/summary")
+        return RobotSummary.model_validate(payload)
+
+    async def create_patrol(self, task_id: str, plan: PatrolPlan) -> dict:
+        payload = {
+            "task_id": task_id,
+            "name": plan.name,
+            "location_ids": plan.waypoints,
+            "event_policy": plan.event_policy,
+            "return_home": plan.return_home,
+        }
+        return await self._request("POST", "/api/v1/patrol/create", json=payload)
+
+    async def control_patrol(self, task_id: str, operation: str, reason: str = "") -> dict:
+        payload = {
+            "task_id": task_id,
+            "operation": operation,
+            "reason": reason,
+        }
+        return await self._request("POST", "/api/v1/patrol/control", json=payload)
+
+    async def set_emergency_stop(self, active: bool, reason: str = "") -> dict:
+        return await self._request(
+            "POST",
+            "/api/v1/safety/emergency-stop",
+            json={"active": active, "reason": reason},
+        )
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict | None = None,
+    ) -> dict:
+        async with httpx.AsyncClient(timeout=self.timeout_sec) as client:
+            response = await client.request(method, f"{self.base_url}{path}", json=json)
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {
+                "error_code": "ROS_GATEWAY_INVALID_RESPONSE",
+                "error_message": response.text,
+            }
+        if response.is_error:
+            error_code = payload.get("error_code", "ROS_GATEWAY_ERROR")
+            error_message = payload.get("error_message", response.text)
+            raise RuntimeError(f"{error_code}: {error_message}")
+        if not isinstance(payload, dict):
+            raise RuntimeError("ROS gateway response must be a JSON object")
+        return payload
 
 
 @dataclass

@@ -21,6 +21,18 @@ def generate_launch_description():
             DeclareLaunchArgument("locations_file", default_value=default_locations),
             DeclareLaunchArgument("nav_action_name", default_value="navigate_to_pose"),
             Node(
+                package="car_gateway",
+                executable="gateway_bridge",
+                name="agent_http_gateway_bridge",
+                output="screen",
+                parameters=[
+                    {
+                        "http_host": "127.0.0.1",
+                        "http_port": 8130,
+                    }
+                ],
+            ),
+            Node(
                 package="car_safety",
                 executable="safety_supervisor",
                 name="safety_supervisor",

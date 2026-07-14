@@ -50,3 +50,23 @@ python3 scripts/mimo_tts_bridge.py --env-file agent-runtime/.env
 ```
 
 bridge 会读取 `TTS_BASE_URL`/`TTS_API_KEY`，也可以复用 `LLM_BASE_URL`/`LLM_API_KEY`。默认模型是 `mimo-v2.5-tts`，默认音色是 `mimo_default`，默认只监听 `127.0.0.1:8123`。
+
+## 真实 ROS 网关
+
+默认仍使用 `CAR_AGENT_GATEWAY_MODE=mock`。接入真实 ROS 控制栈时，宿主机先启动 `car_gateway`：
+
+```bash
+source /opt/ros/foxy/setup.bash
+source ~/orin-ros2-car/ros2_agent_ws/install/setup.bash
+ros2 launch car_gateway gateway_launch.py http_host:=127.0.0.1 http_port:=8130
+```
+
+Agent Runtime 再切到 HTTP 网关：
+
+```text
+CAR_AGENT_GATEWAY_MODE=http_rosbridge
+ROS_GATEWAY_BASE_URL=http://127.0.0.1:8130
+ROS_GATEWAY_TIMEOUT_SEC=3
+```
+
+HTTP 网关只暴露任务级接口：`/api/v1/patrol/create`、`/api/v1/patrol/control`、`/api/v1/robot/summary` 和 `/api/v1/safety/emergency-stop`。Agent 仍不直接发布 `/cmd_vel`。

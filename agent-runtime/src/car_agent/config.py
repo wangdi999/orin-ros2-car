@@ -32,10 +32,15 @@ class Settings(BaseSettings):
         default=Path("config/policies.yaml"),
         alias="CAR_AGENT_POLICIES_PATH",
     )
-    gateway_mode: Literal["mock", "rosbridge"] = Field(
+    gateway_mode: Literal["mock", "http_rosbridge", "rosbridge"] = Field(
         default="mock",
         alias="CAR_AGENT_GATEWAY_MODE",
     )
+    ros_gateway_base_url: str = Field(
+        default="http://127.0.0.1:8130",
+        alias="ROS_GATEWAY_BASE_URL",
+    )
+    ros_gateway_timeout_sec: float = Field(default=3.0, alias="ROS_GATEWAY_TIMEOUT_SEC")
 
     llm_provider: Literal["mock", "openai_compatible"] = Field(
         default="mock",
