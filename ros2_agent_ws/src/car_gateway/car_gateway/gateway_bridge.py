@@ -29,6 +29,7 @@ class GatewayBridgeNode(Node):
         self.declare_parameter("http_port", 8130)
         self.declare_parameter("service_timeout_sec", 3.0)
         self.declare_parameter("status_stale_sec", 3.0)
+        self.declare_parameter("nav_action_name", "navigate_to_pose")
 
         self._service_timeout_sec = float(self.get_parameter("service_timeout_sec").value)
         self._status_stale_sec = float(self.get_parameter("status_stale_sec").value)
@@ -72,12 +73,13 @@ class GatewayBridgeNode(Node):
         nav_status = status.nav_status if status_fresh and status else ""
         return {
             "gateway_online": True,
-            "chassis_online": self._topic_has_publishers("/cmd_vel"),
+            "chassis_online": self._chassis_online(),
             "lidar_online": self._topic_has_publishers("/scan"),
             "camera_online": self._topic_has_publishers("/image_raw")
             or self._topic_has_publishers("/camera/image_raw"),
-            "nav2_ready": self._topic_has_publishers("/amcl_pose")
-            or self._action_topics_present("navigate_to_pose"),
+            "nav2_ready": self._action_server_present(
+                str(self.get_parameter("nav_action_name").value)
+            ),
             "yolo_online": self._topic_has_publishers("/alarm_events"),
             "emergency_stopped": emergency_stopped,
             "active_task_id": active_task_id,
@@ -187,10 +189,25 @@ class GatewayBridgeNode(Node):
     def _topic_has_publishers(self, topic: str) -> bool:
         return bool(self.get_publishers_info_by_topic(topic))
 
-    def _action_topics_present(self, action_name: str) -> bool:
-        names = {name for name, _ in self.get_topic_names_and_types()}
+    def _topic_has_subscribers(self, topic: str) -> bool:
+        return bool(self.get_subscriptions_info_by_topic(topic))
+
+    def _chassis_online(self) -> bool:
+        return (
+            self._topic_has_subscribers("/cmd_vel")
+            or self._topic_has_publishers("/odom")
+            or self._topic_has_publishers("/odom_raw")
+        )
+
+    def _action_server_present(self, action_name: str) -> bool:
         prefix = "/" + action_name.strip("/")
-        return any(name.startswith(prefix + "/") for name in names)
+        services = {name for name, _ in self.get_service_names_and_types()}
+        required = {
+            f"{prefix}/_action/send_goal",
+            f"{prefix}/_action/get_result",
+            f"{prefix}/_action/cancel_goal",
+        }
+        return required.issubset(services)
 
 
 class GatewayError(Exception):

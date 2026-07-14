@@ -70,3 +70,5 @@ ROS_GATEWAY_TIMEOUT_SEC=3
 ```
 
 HTTP 网关只暴露任务级接口：`/api/v1/patrol/create`、`/api/v1/patrol/control`、`/api/v1/robot/summary` 和 `/api/v1/safety/emergency-stop`。Agent 仍不直接发布 `/cmd_vel`。
+
+`/api/v1/robot/summary` 会保守判定硬件状态：`chassis_online` 需要底盘驱动订阅 `/cmd_vel` 或发布 odom，`nav2_ready` 需要 `NavigateToPose` action server 的服务端接口存在。仅启动安全仲裁和巡检管理节点不会被当作底盘或 Nav2 已就绪。
