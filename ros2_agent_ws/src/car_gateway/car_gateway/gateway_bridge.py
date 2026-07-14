@@ -39,6 +39,8 @@ class GatewayBridgeNode(Node):
         self._patrol_status: PatrolStatus | None = None
         self._patrol_status_at = 0.0
         self._emergency_stopped = False
+        self._chassis_connected = False
+        self._chassis_connected_at = 0.0
         self._pose: tuple[float, float, float] | None = None
         self._pose_at = 0.0
 
@@ -52,6 +54,7 @@ class GatewayBridgeNode(Node):
         self._estop_pub = self.create_publisher(Bool, "/safety/emergency_stop", 10)
         self.create_subscription(PatrolStatus, "/patrol/status", self._on_patrol_status, 20)
         self.create_subscription(Bool, "/safety/emergency_stop", self._on_emergency_stop, 20)
+        self.create_subscription(Bool, "/chassis/connected", self._on_chassis_connected, 20)
         self.create_subscription(
             PoseWithCovarianceStamped,
             "/amcl_pose",
@@ -74,13 +77,17 @@ class GatewayBridgeNode(Node):
             status_fresh = status is not None and now - self._patrol_status_at <= self._status_stale_sec
             pose = self._pose if now - self._pose_at <= self._status_stale_sec else None
             emergency_stopped = self._emergency_stopped
+            chassis_connected = (
+                self._chassis_connected
+                and now - self._chassis_connected_at <= self._status_stale_sec
+            )
 
         active_task_id = status.task_id if status_fresh and status and status.task_id else None
         active_state = status.state if status_fresh and status and status.state else "IDLE"
         nav_status = status.nav_status if status_fresh and status else ""
         return {
             "gateway_online": True,
-            "chassis_online": self._chassis_online(),
+            "chassis_online": chassis_connected or self._chassis_online(),
             "lidar_online": self._topic_has_publishers("/scan"),
             "camera_online": self._topic_has_publishers("/image_raw")
             or self._topic_has_publishers("/camera/image_raw"),
@@ -176,6 +183,11 @@ class GatewayBridgeNode(Node):
         with self._lock:
             self._emergency_stopped = bool(message.data)
 
+    def _on_chassis_connected(self, message: Bool) -> None:
+        with self._lock:
+            self._chassis_connected = bool(message.data)
+            self._chassis_connected_at = time.monotonic()
+
     def _on_pose(self, message: PoseWithCovarianceStamped) -> None:
         pose = message.pose.pose
         with self._lock:
@@ -198,11 +210,7 @@ class GatewayBridgeNode(Node):
         return bool(self.get_subscriptions_info_by_topic(topic))
 
     def _chassis_online(self) -> bool:
-        return (
-            self._topic_has_subscribers("/cmd_vel")
-            or self._topic_has_publishers("/odom")
-            or self._topic_has_publishers("/odom_raw")
-        )
+        return self._topic_has_publishers("/odom") or self._topic_has_publishers("/odom_raw")
 
 
 class GatewayError(Exception):

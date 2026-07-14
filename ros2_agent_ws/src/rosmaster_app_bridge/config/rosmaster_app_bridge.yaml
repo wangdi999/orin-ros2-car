@@ -1,0 +1,18 @@
+rosmaster_app_bridge:
+  ros__parameters:
+    app_host: "auto"
+    app_port: 6000
+    car_type: 1
+    cmd_vel_topic: "/cmd_vel"
+    connected_topic: "/chassis/connected"
+    status_topic: "/chassis/status"
+    allowed_cmd_vel_publishers:
+      - "safety_supervisor"
+    max_linear_x: 0.08
+    max_linear_y: 0.08
+    max_angular_z: 0.0
+    deadband_linear: 0.005
+    watchdog_timeout_ms: 350
+    output_hz: 20.0
+    connect_timeout_sec: 1.0
+    reconnect_period_sec: 1.0
