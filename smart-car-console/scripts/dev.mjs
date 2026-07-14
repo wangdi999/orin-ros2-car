@@ -1,7 +1,23 @@
 import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 
 const children = [];
 const isWindows = process.platform === 'win32';
+
+function askIP() {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question('小车IP: ', (answer) => {
+      rl.close();
+      resolve(answer.trim() || '192.168.160.196');
+    });
+  });
+}
+
+const host = process.env.SMART_CAR_HOST || await askIP();
+process.env.SMART_CAR_HOST = host;
+process.env.VITE_SMART_CAR_HOST = host;
+console.log(`小车IP: ${host}`);
 
 function start(name, command, args) {
   const child = spawn(command, args, {

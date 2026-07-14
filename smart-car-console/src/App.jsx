@@ -70,7 +70,7 @@ const emptyState = {
 
 const defaultConfig = {
   car: {
-    host: '192.168.160.196',
+    host: import.meta.env?.VITE_SMART_CAR_HOST || '',
     sshUser: 'jetson',
     sshPasswordSet: false,
     sshHostKey: '',
@@ -430,28 +430,81 @@ function ServicePanel({ status, rosbridge, telemetry }) {
 
 function CameraPanel({ host, videoReady }) {
   const [imageOk, setImageOk] = useState(true);
-  useEffect(() => setImageOk(true), [host, videoReady]);
+  const [aiImageOk, setAiImageOk] = useState(true);
+  const [aiMode, setAiMode] = useState(false);
+  const [aiStats, setAiStats] = useState(null);
+  useEffect(() => { setImageOk(true); setAiImageOk(true); }, [host, videoReady]);
+
+  // AI stats polling
+  useEffect(() => {
+    if (!aiMode) { setAiStats(null); return; }
+    const poll = () => {
+      fetch('/api/ai-alarms').then(r => r.json()).then(d => {
+        fetch('/api/ai-perf').then(r => r.json()).then(p => {
+          setAiStats({ alarms: d, perf: p });
+        }).catch(() => {});
+      }).catch(() => {});
+    };
+    poll();
+    const id = setInterval(poll, 3000);
+    return () => clearInterval(id);
+  }, [aiMode]);
+
+  const showRaw = !aiMode && videoReady && imageOk;
+  const showAi = aiMode && aiImageOk;
+
   return (
     <section className="panel media-panel">
-      <PanelTitle title="摄像头" right={<ToolbarIcons names={['camera', 'fullscreen', 'more']} />} />
-      <div className="camera-frame">
-        {videoReady && imageOk ? (
-          <img
-            src={`/api/video?host=${encodeURIComponent(host)}`}
-            alt="智能小车摄像头视频流"
-            onError={() => setImageOk(false)}
-          />
+      <PanelTitle title="摄像头" right={
+        <div style={{display:'flex',gap:4,alignItems:'center'}}>
+          <button onClick={() => setAiMode(false)}
+            style={{background:aiMode?'#21262d':'#30363d',border:'1px solid #30363d',color:aiMode?'#8b949e':'#58a6ff',borderRadius:4,padding:'2px 8px',fontSize:11,cursor:'pointer'}}>
+            原始画面
+          </button>
+          <button onClick={() => setAiMode(true)}
+            style={{background:aiMode?'#30363d':'#21262d',border:'1px solid #30363d',color:aiMode?'#58a6ff':'#8b949e',borderRadius:4,padding:'2px 8px',fontSize:11,cursor:'pointer'}}>
+            AI检测
+          </button>
+        </div>
+      } />
+      <div className="camera-frame" style={{position:'relative'}}>
+        {aiMode ? (
+          showAi ? (
+            <>
+              <img src="/api/ai-video" alt="AI检测视频流"
+                onError={() => setAiImageOk(false)} />
+              {aiStats && (
+                <div style={{position:'absolute',top:8,right:8,background:'rgba(0,0,0,0.7)',borderRadius:6,padding:'6px 10px',fontSize:11,color:'#c9d1d9',lineHeight:1.6}}>
+                  <div>FPS: <span style={{color:'#58a6ff'}}>{aiStats.perf?.fps ?? '--'}</span></div>
+                  <div>人员: <span style={{color:'#3fb950'}}>{aiStats.alarms?.total_by_type?.person_detected ?? 0}</span></div>
+                  <div>异常: <span style={{color:'#f85149'}}>{aiStats.alarms?.total_by_type?.abnormal_behavior ?? 0}</span></div>
+                  <div>裂缝: <span style={{color:'#f0883e'}}>{aiStats.alarms?.total_by_type?.cracked_tile ?? 0}</span></div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="camera-placeholder">
+              <Icon name="camera" />
+              <strong>AI检测视频流未连接</strong>
+              <span>请确保 Jetson 上 ai_web_bridge 正在运行 (端口 6501)</span>
+            </div>
+          )
         ) : (
-          <div className="camera-placeholder">
-            <Icon name="camera" />
-            <strong>视频流未连接</strong>
-            <span>启动服务后代理 http://{host}:6500/video_feed</span>
-          </div>
+          showRaw ? (
+            <img src={`/api/video?host=${encodeURIComponent(host)}`} alt="摄像头视频流"
+              onError={() => setImageOk(false)} />
+          ) : (
+            <div className="camera-placeholder">
+              <Icon name="camera" />
+              <strong>视频流未连接</strong>
+              <span>启动服务后代理 http://{host}:6500/video_feed</span>
+            </div>
+          )
         )}
       </div>
       <div className="media-footer">
-        <span>{imageOk && videoReady ? 'MJPEG 代理已启用' : '等待视频流'}</span>
-        <span>{host}:6500</span>
+        <span>{aiMode ? (showAi ? 'AI检测' : '等待AI检测流') : (showRaw ? 'MJPEG 代理已启用' : '等待视频流')}</span>
+        <span>{host}{aiMode ? ':6501 (AI检测)' : ':6500 (原始)'}</span>
       </div>
     </section>
   );
