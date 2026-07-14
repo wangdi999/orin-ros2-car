@@ -77,6 +77,12 @@ DEFAULT_MODEL_PATH = os.path.join(
 DEFAULT_ONNX_PATH = os.path.join(
     str(Path.home()), "smart_car_ws", "models", "yolov8s.onnx"
 )
+CRACK_ENGINE_PATH = os.path.join(
+    str(Path.home()), "smart_car_ws", "models", "crack_yolo.engine"
+)
+CRACK_ONNX_PATH = os.path.join(
+    str(Path.home()), "smart_car_ws", "models", "crack_yolo.onnx"
+)
 
 # 推理参数
 CONFIDENCE_THRESHOLD = 0.5
@@ -308,6 +314,22 @@ class YOLOv8InferenceNode(Node):
         )
         self._visualizer = DetectionVisualizer()
         self._capture_manager = CaptureManager(buffer_size=30)
+
+        # ---- 裂缝检测模型 ----
+        crack_engine = os.environ.get(
+            "CRACK_ENGINE_PATH", CRACK_ENGINE_PATH
+        )
+        crack_onnx = os.environ.get(
+            "CRACK_ONNX_PATH", CRACK_ONNX_PATH
+        )
+        self._crack_model = load_model(
+            self.get_logger(), crack_engine, crack_onnx
+        )
+        # 兼容 ultralytics 8.2.x AutoBackend 缺少 task 属性
+        if (hasattr(self._crack_model, 'model')
+                and not isinstance(self._crack_model.model, str)
+                and not hasattr(self._crack_model.model, 'task')):
+            self._crack_model.model.task = 'segment'
 
         # ---- 运行控制 ----
         self._running = True
@@ -642,9 +664,36 @@ class YOLOv8InferenceNode(Node):
                             bboxes.append(tuple(xyxy.tolist()))
                             confidences.append(conf)
 
-                # ---- 无检测：继续循环 ----
+                # ---- 裂缝检测（YOLO模型，每帧都跑） ----
+                crack_results = []
+                try:
+                    cr = self._crack_model(
+                        color_image, conf=0.35, verbose=False
+                    )
+                    if cr and len(cr) > 0:
+                        boxes = cr[0].boxes
+                        if boxes is not None and len(boxes) > 0:
+                            for box in boxes:
+                                xyxy = box.xyxy[0].cpu().numpy()
+                                conf = float(box.conf[0].cpu().numpy())
+                                crack_results.append(
+                                    (float(xyxy[0]), float(xyxy[1]),
+                                     float(xyxy[2]), float(xyxy[3]), conf)
+                                )
+                except Exception as e:
+                    self.get_logger().warn(
+                        "裂缝检测异常: {}".format(e)
+                    )
+
+                # ---- 合并裂缝结果 ----
+                num_person = len(bboxes)
+                for cr in crack_results:
+                    bboxes.append((cr[0], cr[1], cr[2], cr[3]))
+                    confidences.append(cr[4])
+                num_crack = len(crack_results)
+
+                # ---- 无任何检测：继续循环 ----
                 if not bboxes:
-                    # 仍需要发布可视化帧（无框的原始帧）
                     vis_image = self._visualizer.draw_detections(
                         color_image, [], [], []
                     )
@@ -654,13 +703,24 @@ class YOLOv8InferenceNode(Node):
                     self._publish_visualization(vis_image, color_header)
                     continue
 
-                # ---- 深度关联 ----
-                depth_vals = self._extract_depth_values(bboxes)
+                # ---- 深度关联（仅对person检测框） ----
+                person_bboxes = bboxes[:num_person]
+                depth_vals = self._extract_depth_values(person_bboxes)
 
-                # ---- 异常行为判定 ----
+                # ---- 异常行为判定（仅对person） ----
                 is_abnormal_list = self._abnormal_detector.update(
-                    bboxes, depth_vals
+                    person_bboxes, depth_vals
                 )
+
+                # ---- 构建 danger_types ----
+                danger_types = []
+                for i in range(num_person):
+                    if is_abnormal_list[i]:
+                        danger_types.append("abnormal_behavior")
+                    else:
+                        danger_types.append("person_detected")
+                for _ in range(num_crack):
+                    danger_types.append("cracked_tile")
 
                 # ---- 获取当前位置 ----
                 position = self._get_current_position()
@@ -668,14 +728,7 @@ class YOLOv8InferenceNode(Node):
                 # ---- 逐目标处理 ----
                 for i, bbox in enumerate(bboxes):
                     confidence = confidences[i]
-                    is_abnormal = is_abnormal_list[i]
-
-                    # 确定 danger_type
-                    danger_type = (
-                        "abnormal_behavior"
-                        if is_abnormal
-                        else "person_detected"
-                    )
+                    danger_type = danger_types[i]
 
                     # 消抖检查
                     if not self._debouncer.should_publish(danger_type):
@@ -720,7 +773,7 @@ class YOLOv8InferenceNode(Node):
                         self._total_alarm_latency_ms += alarm_latency_ms
 
                     # ---- 异常行为截帧 ----
-                    if is_abnormal:
+                    if danger_type == "abnormal_behavior":
                         self._capture_manager.trigger()
                         self.get_logger().warn(
                             f"触发异常行为截帧！"
@@ -730,7 +783,7 @@ class YOLOv8InferenceNode(Node):
 
                 # ---- 发布可视化帧 ----
                 vis_image = self._visualizer.draw_detections(
-                    color_image, bboxes, confidences, is_abnormal_list
+                    color_image, bboxes, confidences, danger_types
                 )
                 # 叠加性能信息到可视化帧
                 self._overlay_perf_info(
@@ -1004,6 +1057,9 @@ class YOLOv8InferenceNode(Node):
         if hasattr(self, "_model") and self._model is not None:
             del self._model
             self._model = None
+        if hasattr(self, "_crack_model") and self._crack_model is not None:
+            del self._crack_model
+            self._crack_model = None
 
         # 清理 GPU
         self._clear_gpu_cache()
