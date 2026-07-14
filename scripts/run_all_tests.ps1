@@ -16,10 +16,10 @@ function Invoke-Pytest($WorkDir, $ExtraArgs = @()) {
 }
 
 Write-Host "=== [1/6] smart_car_ws (AI 视觉) ==="
-Invoke-Pytest (Join-Path $Root "smart_car_ws")
+Invoke-Pytest (Join-Path $Root "smart_car_ws") @("src/")
 
 Write-Host "=== [2/6] ros2_agent_ws (巡逻/安全) ==="
-Invoke-Pytest (Join-Path $Root "ros2_agent_ws")
+Invoke-Pytest (Join-Path $Root "ros2_agent_ws") @("src/")
 
 Write-Host "=== [3/6] agent-runtime (LangGraph 编排) ==="
 # agent-runtime 需要 Python 3.10+（使用了 | 联合类型语法）

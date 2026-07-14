@@ -8,14 +8,14 @@ cd "$ROOT"
 
 echo "=== [1/6] smart_car_ws (AI 视觉) ==="
 cd smart_car_ws
-python3 -m pip install --quiet pytest numpy PyYAML 2>/dev/null || python -m pip install --quiet pytest numpy PyYAML
-python3 -m pytest -q || python -m pytest -q
+python3 -m pip install --quiet pytest numpy PyYAML opencv-python-headless 2>/dev/null || python -m pip install --quiet pytest numpy PyYAML opencv-python-headless
+python3 -m pytest -q src/ || python -m pytest -q src/
 cd "$ROOT"
 
 echo "=== [2/6] ros2_agent_ws (巡逻/安全) ==="
 cd ros2_agent_ws
 python3 -m pip install --quiet pytest PyYAML 2>/dev/null || python -m pip install --quiet pytest PyYAML
-python3 -m pytest -q || python -m pytest -q
+python3 -m pytest -q src/ || python -m pytest -q src/
 cd "$ROOT"
 
 echo "=== [3/6] agent-runtime (LangGraph 编排) ==="
