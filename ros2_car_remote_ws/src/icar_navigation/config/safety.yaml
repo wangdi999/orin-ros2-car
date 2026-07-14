@@ -1,0 +1,15 @@
+safety_manager:
+  ros__parameters:
+    chassis_timeout_sec: 0.30
+    scan_timeout_sec: 0.40
+    odom_timeout_sec: 0.20
+    ownership_check_period_sec: 0.20
+    expected_cmd_vel_publisher: cmd_vel_arbiter
+    expected_odom_publisher: ekf_filter_node
+    expected_scan_publisher: sllidar_node
+    enable_real_low_battery: false
+    low_battery_window: 10
+    low_battery_threshold_v: 10.8
+    low_battery_recovery_v: 11.1
+    low_battery_sustain_sec: 5.0
+    alarm_repeat_sec: 5.0

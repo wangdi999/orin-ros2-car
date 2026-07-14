@@ -1,0 +1,12 @@
+cmd_vel_arbiter:
+  ros__parameters:
+    manual_timeout_sec: 0.30
+    nav_timeout_sec: 0.30
+    safety_state_timeout_sec: 0.30
+    chassis_state_timeout_sec: 0.30
+    patrol_status_timeout_sec: 0.30
+    max_linear_x: 0.10
+    max_linear_y: 0.10
+    max_angular_z: 0.40
+    zero_cycles_on_switch: 1
+    output_rate_hz: 20.0

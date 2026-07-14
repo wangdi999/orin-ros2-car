@@ -32,3 +32,9 @@ npm run build
 ```
 
 If editing ROS2 packages, validate on the car or in a ROS2 Foxy environment. This extracted folder does not include the full car dependency graph.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+at specs/001-ros2-navigation-safety/plan.md
+<!-- SPECKIT END -->

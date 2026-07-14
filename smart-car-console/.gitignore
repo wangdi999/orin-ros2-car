@@ -1,5 +1,7 @@
 node_modules/
 dist/
 logs/
+recordings/
+data/
 local-config.json
 *.log

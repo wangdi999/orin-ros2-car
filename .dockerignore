@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+coverage/
+.git/
+.dockerignore
+Dockerfile*
+*.log*
+.env*
+smart-car-console/local-config.json
+smart-car-console/data/
+artifacts/navigation/raw/

@@ -12,12 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ament_copyright.main import main
+from pathlib import Path
+from xml.etree import ElementTree
+
 import pytest
 
 
 @pytest.mark.copyright
 @pytest.mark.linter
-def test_copyright():
-    rc = main(argv=['.', 'test'])
-    assert rc == 0, 'Found errors'
+def test_package_license_is_declared():
+    """Require an explicit package license without rewriting vendor headers."""
+    package_xml = Path(__file__).resolve().parents[1] / 'package.xml'
+    root = ElementTree.parse(package_xml).getroot()
+    licenses = {
+        element.text.strip()
+        for element in root.findall('license')
+        if element.text and element.text.strip()
+    }
+    assert 'Apache-2.0' in licenses

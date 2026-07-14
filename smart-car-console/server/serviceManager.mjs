@@ -1,35 +1,19 @@
-import { ZERO_TWIST } from './control.mjs';
 import { addLog, runtime, updateStatus } from './state.mjs';
-import { bash } from './ssh.mjs';
+import { bash, shellQuote } from './ssh.mjs';
 
 export class ServiceManager {
-  constructor(sshExecutor, rosbridge) {
+  constructor(sshExecutor, rosbridge, getConfig = () => ({})) {
     this.ssh = sshExecutor;
     this.rosbridge = rosbridge;
+    this.getConfig = getConfig;
   }
 
   async refreshStatus() {
     const result = await this.ssh.run(bash(remoteStatusScript()), { timeoutMs: 15000 });
     if (!result.ok) {
-      updateStatus({
-        ssh: {
-          connected: false,
-          hostname: null,
-          lastError: summarizeFailure(result),
-          updatedAt: new Date().toISOString()
-        },
-        ports: {
-          control6000: false,
-          video6500: false,
-          rosbridge9090: false
-        },
-        services: {
-          ...runtime.status.services,
-          rosbridge: false,
-          video: false
-        }
-      });
-      addLog('warn', 'ssh', `Status check failed: ${summarizeFailure(result)}`);
+      const summary = summarizeFailure(result);
+      updateStatus(remoteOfflineStatus(summary));
+      addLog('warn', 'ssh', `Status check failed: ${summary}`);
       return runtime.status;
     }
 
@@ -70,8 +54,13 @@ export class ServiceManager {
   }
 
   async startServices() {
-    addLog('info', 'services', 'Starting Jetson Docker, ROS nodes, rosbridge, and camera stream');
-    const result = await this.ssh.run(bash(remoteStartScript()), { timeoutMs: 20000 });
+    const config = this.getConfig();
+    const mode = config.navigation?.enabled === false ? 'legacy' : config.navigation?.mode ?? 'safe_base';
+    addLog('info', 'services', `Starting Jetson Docker, ${mode} ROS profile, rosbridge, and camera stream`);
+    const result = await this.ssh.run(
+      bash(buildRemoteStartScript(config.video, config.navigation)),
+      { timeoutMs: 25000 }
+    );
     if (!result.ok) {
       const summary = summarizeFailure(result);
       addLog('error', 'services', `Start failed: ${summary}`, {
@@ -148,6 +137,39 @@ function summarizeFailure(result) {
   return tail(result.stderr || result.stdout || `exit code ${result.code}`) || 'unknown error';
 }
 
+function remoteOfflineStatus(lastError) {
+  return {
+    ssh: {
+      connected: false,
+      hostname: null,
+      lastError,
+      updatedAt: new Date().toISOString()
+    },
+    devices: {
+      chassisSerial: false,
+      chassisPath: null,
+      lidar: false,
+      cameraDepth: false,
+      cameraUvc: false,
+      video0: false
+    },
+    ports: {
+      control6000: false,
+      video6500: false,
+      rosbridge9090: false
+    },
+    services: {
+      docker: false,
+      container: null,
+      chassis: false,
+      lidar: false,
+        camera: false,
+      rosbridge: false,
+      video: false
+    }
+  };
+}
+
 function commonContainerLookup() {
   return `
 find_container() {
@@ -165,7 +187,7 @@ find_named_container() {
 }
 
 function remoteStatusScript() {
-  return `
+return `
 set +e
 ${commonContainerLookup()}
 exists() { [ -e "$1" ] && printf '1' || printf '0'; }
@@ -218,9 +240,19 @@ proc_host '[s]martcar_mjpeg_video0.py|[R]osmaster-App/rosmaster/app.py|[p]ython3
 `;
 }
 
-function remoteStartScript() {
+export function buildRemoteStartScript(videoConfig = {}, navigationConfig = {}) {
+  const video = normalizeVideoConfig(videoConfig);
+  const navigation = normalizeNavigationConfig(navigationConfig);
+  const navigationLaunch = navigationLaunchCommand(navigation);
+  const zeroTwist = shellQuote(
+    '{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}'
+  );
   return `
 set +e
+navigation_enabled=${navigation.enabled ? '1' : '0'}
+navigation_mode=${shellQuote(navigation.mode)}
+navigation_setup=${shellQuote(navigation.overlaySetup)}
+navigation_launch=${shellQuote(navigation.launchFile)}
 ${commonContainerLookup()}
 port_open() { ss -ltn 2>/dev/null | grep -Eq "[:.]$1[[:space:]]"; }
 find_chassis_device() {
@@ -241,17 +273,48 @@ find_chassis_device() {
   done
 }
 container_needs_recreate() {
-  local cid="$1"
+  local cid="$1" chassis_device host_device container_device
   [ -n "$cid" ] || return 1
+  if [ "$navigation_enabled" = '1' ] \
+      && [ -f /home/jetson/ros2_navigation_overlay/.ready ] \
+      && ! docker inspect "$cid" --format '{{range .Mounts}}{{println .Destination}}{{end}}' 2>/dev/null \
+          | grep -Fxq '/root/ros2_navigation_overlay'; then
+    return 0
+  fi
   for dev in /dev/astradepth /dev/astrauvc /dev/video0 /dev/rplidar; do
     if [ -e "$dev" ] && ! docker exec "$cid" test -e "$dev" >/dev/null 2>&1; then
       return 0
     fi
   done
-  if [ -n "$(find_chassis_device)" ] && ! docker exec "$cid" test -e /dev/myserial >/dev/null 2>&1; then
-    return 0
+  chassis_device="$(find_chassis_device)"
+  if [ -n "$chassis_device" ]; then
+    if ! docker exec "$cid" test -e /dev/myserial >/dev/null 2>&1; then
+      return 0
+    fi
+    host_device="$(stat -Lc '%t:%T' "$chassis_device" 2>/dev/null || true)"
+    container_device="$(docker exec "$cid" stat -Lc '%t:%T' /dev/myserial 2>/dev/null || true)"
+    if [ -z "$host_device" ] || [ "$host_device" != "$container_device" ]; then
+      return 0
+    fi
   fi
   return 1
+}
+stop_container_safely() {
+  local target_cid="$1"
+  docker exec "$target_cid" /bin/bash -c "
+    if [ \"$navigation_enabled\" = '1' ] \\
+        && [ -f /root/ros2_navigation_overlay/install/share/icar_navigation/config/fastdds_localhost.xml ]; then
+      export ROS_LOCALHOST_ONLY=1
+      export FASTRTPS_DEFAULT_PROFILES_FILE=/root/ros2_navigation_overlay/install/share/icar_navigation/config/fastdds_localhost.xml
+    fi
+    for setup in /opt/ros/foxy/setup.bash /root/icar_ros2_ws/icar_ws/install/setup.bash /root/icar_ros2_ws/software/library_ws/install/setup.bash /root/ros2_navigation_overlay/install/setup.bash; do
+      [ -f \"\$setup\" ] && source \"\$setup\"
+    done
+    timeout 3 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist ${zeroTwist}
+  " >/tmp/smartcar_pre_restart_zero.log 2>&1 || true
+  sleep 1
+  docker exec "$target_cid" /bin/bash -c "pkill -TERM -f '[M]cnamu_driver_X3|[s]llidar_launch.py|[s]llidar_node|[c]md_vel_arbiter|[s]afety_manager|[p]atrol_manager|[c]artographer_node|[o]ccupancy_grid_node|[a]mcl|[c]ontroller_server|[p]lanner_server|[r]ecoveries_server|[b]t_navigator|[l]ifecycle_manager|[a]stra.launch.xml|[a]stra_camera|[r]osbridge_websocket_launch.xml|[r]osbridge_websocket|[r]osapi_node|[r]os2 launch icar_navigation' || true" || true
+  sleep 1
 }
 start_video_stream() {
   pkill -f '[R]osmaster-App/rosmaster/app.py' 2>/dev/null || true
@@ -262,8 +325,75 @@ start_video_stream() {
   pkill -f '[s]martcar_mjpeg_video0.py' 2>/dev/null || true
   cat >/tmp/smartcar_mjpeg_video0.py <<'PY'
 import cv2 as cv
+import glob
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+WIDTH = ${video.width}
+HEIGHT = ${video.height}
+FPS = ${video.fps}
+JPEG_QUALITY = ${video.jpegQuality}
+FRAME_DELAY = 1.0 / max(FPS, 1)
+VIDEO_SOURCES = sorted(glob.glob('/dev/video*')) + [0]
+latest_jpeg = None
+latest_source = None
+latest_error = 'camera capture is starting'
+frame_lock = threading.Lock()
+
+def open_camera():
+    for source in VIDEO_SOURCES:
+        cap = cv.VideoCapture(source, cv.CAP_V4L2)
+        cap.set(cv.CAP_PROP_FRAME_WIDTH, WIDTH)
+        cap.set(cv.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+        cap.set(cv.CAP_PROP_FPS, FPS)
+        cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
+        if not cap.isOpened():
+            cap.release()
+            continue
+
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            ok, frame = cap.read()
+            if ok:
+                return source, cap, frame
+            time.sleep(0.05)
+        cap.release()
+    return None, None, None
+
+def capture_loop():
+    global latest_jpeg, latest_source, latest_error
+    while True:
+        source, cap, frame = open_camera()
+        if cap is None:
+            with frame_lock:
+                latest_jpeg = None
+                latest_source = None
+                latest_error = 'no usable /dev/video* camera'
+            time.sleep(1.0)
+            continue
+
+        with frame_lock:
+            latest_source = source
+            latest_error = None
+
+        try:
+            while True:
+                ok, jpeg = cv.imencode('.jpg', frame, [int(cv.IMWRITE_JPEG_QUALITY), JPEG_QUALITY])
+                if ok:
+                    with frame_lock:
+                        latest_jpeg = jpeg.tobytes()
+                        latest_source = source
+                        latest_error = None
+                ok, frame = cap.read()
+                if not ok:
+                    with frame_lock:
+                        latest_error = f'{source} stopped producing frames'
+                    break
+                time.sleep(FRAME_DELAY)
+        finally:
+            cap.release()
+            time.sleep(0.25)
 
 class MjpegHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -282,44 +412,62 @@ class MjpegHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        cap = cv.VideoCapture(0)
-        cap.set(cv.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv.CAP_PROP_FRAME_HEIGHT, 480)
-        if not cap.isOpened():
-            self.send_error(503, 'video0 is not available')
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            with frame_lock:
+                data = latest_jpeg
+                source = latest_source
+                error = latest_error
+            if data is not None:
+                break
+            time.sleep(0.05)
+
+        if data is None:
+            self.send_error(503, error or 'video frame is not ready')
             return
 
         self.send_response(200)
         self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
+        self.send_header('X-Smartcar-Video-Source', str(source))
         self.send_header('Cache-Control', 'no-store')
         self.end_headers()
 
         try:
             while True:
-                ok, frame = cap.read()
-                if not ok:
-                    time.sleep(0.1)
+                with frame_lock:
+                    data = latest_jpeg
+                if data is None:
+                    time.sleep(0.05)
                     continue
-                ok, jpeg = cv.imencode('.jpg', frame, [int(cv.IMWRITE_JPEG_QUALITY), 70])
-                if not ok:
-                    continue
-                data = jpeg.tobytes()
                 self.wfile.write(b'--frame\\r\\n')
                 self.wfile.write(b'Content-Type: image/jpeg\\r\\n')
                 self.wfile.write(f'Content-Length: {len(data)}\\r\\n\\r\\n'.encode('ascii'))
                 self.wfile.write(data)
                 self.wfile.write(b'\\r\\n')
                 self.wfile.flush()
-                time.sleep(0.05)
+                time.sleep(FRAME_DELAY)
         except (BrokenPipeError, ConnectionResetError):
             pass
-        finally:
-            cap.release()
 
+threading.Thread(target=capture_loop, daemon=True).start()
 server = ThreadingHTTPServer(('0.0.0.0', 6500), MjpegHandler)
 server.serve_forever()
 PY
   setsid -f bash -lc 'exec python3 /tmp/smartcar_mjpeg_video0.py >/tmp/smartcar_video_6500.log 2>&1'
+}
+enable_chassis_auto_report() {
+  docker exec "$cid" /bin/bash -c "timeout 3 python3 - <<'PY'
+from Rosmaster_Lib import Rosmaster
+import time
+
+car = Rosmaster(com='/dev/myserial')
+car.set_auto_report_state(True)
+time.sleep(0.05)
+try:
+    car.ser.close()
+except Exception:
+    pass
+PY" >/tmp/smartcar_chassis_autoreport.log 2>&1 || true
 }
 cid="$(find_container)"
 if [ -n "$cid" ]; then
@@ -333,44 +481,183 @@ else
   fi
 fi
 if [ -n "$cid" ] && container_needs_recreate "$cid"; then
+  stop_container_safely "$cid"
   docker rm -f "$cid" >/dev/null 2>&1 || true
   cid=""
 fi
+container_created=0
 if [ -z "$cid" ]; then
+  mkdir -p /home/jetson/ros2_navigation_overlay
   device_args=""
-  for dev in /dev/astradepth /dev/astrauvc /dev/video0 /dev/myserial /dev/rplidar /dev/input; do
+  for dev in /dev/astradepth /dev/astrauvc /dev/video0 /dev/rplidar /dev/input; do
     if [ -e "$dev" ]; then
       device_args="$device_args --device=$dev"
     fi
   done
+  chassis_device="$(find_chassis_device)"
+  if [ -n "$chassis_device" ]; then
+    device_args="$device_args --device=$chassis_device:/dev/myserial"
+  fi
   cid="$(docker run -d --name smartcar_icar_console --net=host \
     --env DISPLAY --env QT_X11_NO_MITSHM=1 \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
     -v /home/jetson/temp:/root/icar_ros2_ws/temp \
     -v /home/jetson/rosboard:/root/rosboard \
     -v /home/jetson/maps:/root/maps \
+    -v /home/jetson/ros2_navigation_overlay:/root/ros2_navigation_overlay \
     $device_args \
     icar/ros-foxy:1.0.2 tail -f /dev/null)"
+  container_created=1
 fi
 if [ -z "$cid" ]; then
   echo 'No icar/ros-foxy:1.0.2 container available' >&2
   exit 30
 fi
-ros_setup='. /opt/ros/foxy/setup.bash; . /root/icar_ros2_ws/icar_ws/install/setup.bash; . /root/icar_ros2_ws/software/library_ws/install/setup.bash'
-chassis_device="$(find_chassis_device)"
-docker exec "$cid" /bin/bash -c "pkill -f 'Mcnamu_driver_X3|sllidar_launch.py|sllidar_node|rosbridge_websocket_launch.xml|rosbridge_websocket|rosapi_node' || true"
-sleep 1
-if [ -n "$chassis_device" ]; then
-  docker exec -d "$cid" /bin/bash -c "$ros_setup; ros2 run icar_bringup Mcnamu_driver_X3 >/tmp/smartcar_chassis.log 2>&1"
-else
-  echo 'Skipping chassis driver: /dev/myserial or a non-lidar serial device was not found' >&2
+if [ "$navigation_enabled" = '1' ] \
+    && ! docker exec "$cid" test -f "$navigation_setup"; then
+  echo "Navigation overlay is not ready: $navigation_setup" >&2
+  exit 41
 fi
-docker exec -d "$cid" /bin/bash -c "$ros_setup; ros2 launch sllidar_ros2 sllidar_launch.py >/tmp/smartcar_lidar.log 2>&1"
+if [ "$container_created" = '0' ]; then
+  stop_container_safely "$cid"
+  docker restart -t 2 "$cid" >/dev/null || exit 31
+  sleep 1
+  cid="$(find_container)"
+  if [ -z "$cid" ]; then
+    echo 'ROS container did not recover after restart' >&2
+    exit 32
+  fi
+fi
+ros_setup='export ROS_LOCALHOST_ONLY=1; export FASTRTPS_DEFAULT_PROFILES_FILE=/root/ros2_navigation_overlay/install/share/icar_navigation/config/fastdds_localhost.xml; . /opt/ros/foxy/setup.bash; . /root/icar_ros2_ws/icar_ws/install/setup.bash; . /root/icar_ros2_ws/software/library_ws/install/setup.bash'
+chassis_device="$(find_chassis_device)"
+if [ -n "$chassis_device" ]; then
+  enable_chassis_auto_report
+fi
+if [ "$navigation_enabled" = '1' ]; then
+  docker exec -d "$cid" /bin/bash -c "$ros_setup; . $navigation_setup; ${navigationLaunch} >/tmp/smartcar_navigation.log 2>&1"
+else
+  if [ -n "$chassis_device" ]; then
+    docker exec -d "$cid" /bin/bash -c "$ros_setup; ros2 run icar_bringup Mcnamu_driver_X3 >/tmp/smartcar_chassis.log 2>&1"
+  else
+    echo 'Skipping chassis driver: /dev/myserial or a non-lidar serial device was not found' >&2
+  fi
+  docker exec -d "$cid" /bin/bash -c "$ros_setup; ros2 launch sllidar_ros2 sllidar_launch.py >/tmp/smartcar_lidar.log 2>&1"
+fi
 docker exec -d "$cid" /bin/bash -c "$ros_setup; ros2 launch rosbridge_server rosbridge_websocket_launch.xml >/tmp/smartcar_rosbridge.log 2>&1"
 start_video_stream
-sleep 3
+sleep 5
+if [ "$navigation_enabled" = '1' ]; then
+  process_table="$(docker exec "$cid" ps -ef 2>/dev/null || true)"
+  launch_health_ok=1
+  require_process() {
+    case "$process_table" in
+      *"$1"*) return 0 ;;
+      *) echo "Required $navigation_mode process is missing: $1" >&2; return 1 ;;
+    esac
+  }
+  require_process "ros2 launch icar_navigation $navigation_launch" || launch_health_ok=0
+  for required in Mcnamu_driver_X3 sllidar_node ekf_node cmd_vel_arbiter safety_manager; do
+    require_process "$required" || launch_health_ok=0
+  done
+  case "$navigation_mode" in
+    mapping)
+      for required in cartographer_node occupancy_grid_node; do
+        require_process "$required" || launch_health_ok=0
+      done
+      ;;
+    navigation|demo)
+      for required in amcl map_server controller_server planner_server bt_navigator patrol_manager; do
+        require_process "$required" || launch_health_ok=0
+      done
+      ;;
+  esac
+  if docker exec "$cid" grep -Eq \
+      'Traceback|FATAL|process has died|Failed to bring up|SubstitutionFailure' \
+      /tmp/smartcar_navigation.log 2>/dev/null; then
+    echo "Navigation launch log contains a fatal startup marker" >&2
+    launch_health_ok=0
+  fi
+  if [ "$launch_health_ok" -ne 1 ]; then
+    docker exec "$cid" tail -n 120 /tmp/smartcar_navigation.log >&2 || true
+    exit 42
+  fi
+fi
 echo "CID=$cid"
 `;
+}
+
+function normalizeVideoConfig(config = {}) {
+  return {
+    width: clampInteger(config.width, 160, 1920, 640),
+    height: clampInteger(config.height, 120, 1080, 480),
+    fps: clampInteger(config.fps, 1, 60, 20),
+    jpegQuality: clampInteger(config.jpegQuality, 20, 95, 70)
+  };
+}
+
+function normalizeNavigationConfig(config = {}) {
+  const mode = ['safe_base', 'mapping', 'navigation', 'demo'].includes(config.mode)
+    ? config.mode
+    : 'safe_base';
+  const launchFiles = {
+    safe_base: 'safe_base.launch.py',
+    mapping: 'mapping.launch.py',
+    navigation: 'navigation.launch.py',
+    demo: 'demo.launch.py'
+  };
+  return {
+    enabled: config.enabled !== false,
+    mode,
+    launchFile: launchFiles[mode],
+    overlaySetup: safePosixPath(
+      config.overlaySetup,
+      '/root/ros2_navigation_overlay/install/setup.bash'
+    ),
+    map: safePosixPath(
+      config.map,
+      '/root/ros2_navigation_overlay/install/share/icar_navigation/maps/campus_map.yaml'
+    ),
+    routeFile: safePosixPath(
+      config.routeFile,
+      '/root/ros2_navigation_overlay/install/share/icar_navigation/config/patrol_route.yaml'
+    ),
+    maxLinearMps: clampNumber(config.maxLinearMps, 0.05, 0.1, 0.05),
+    maxAngularRps: clampNumber(config.maxAngularRps, 0.2, 0.4, 0.2)
+  };
+}
+
+function navigationLaunchCommand(config) {
+  const args = [
+    'ros2 launch icar_navigation',
+    config.launchFile,
+    `max_linear:=${shellQuote(String(config.maxLinearMps))}`,
+    `max_angular:=${shellQuote(String(config.maxAngularRps))}`
+  ];
+  if (config.mode === 'navigation' || config.mode === 'demo') {
+    args.push(`map:=${shellQuote(config.map)}`);
+    args.push(`route_file:=${shellQuote(config.routeFile)}`);
+  }
+  if (config.mode === 'demo') {
+    args.push('auto_start_patrol:=false');
+  }
+  return args.join(' ');
+}
+
+function safePosixPath(value, fallback) {
+  const path = String(value ?? '').trim();
+  return /^\/[A-Za-z0-9._/-]+$/.test(path) ? path : fallback;
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function clampInteger(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(number)));
 }
 
 function remoteStopScript() {
@@ -379,7 +666,7 @@ set +e
 ${commonContainerLookup()}
 cid="$(find_container)"
 if [ -n "$cid" ]; then
-  docker exec "$cid" bash -lc "pkill -f 'Mcnamu_driver_X3|sllidar_launch.py|sllidar_node|astra.launch.xml|astra_camera|rosbridge_websocket_launch.xml|rosbridge_websocket' || true"
+  docker exec "$cid" bash -lc "pkill -f '[M]cnamu_driver_X3|[s]llidar_launch.py|[s]llidar_node|[c]md_vel_arbiter|[s]afety_manager|[p]atrol_manager|[c]artographer_node|[o]ccupancy_grid_node|[a]mcl|[c]ontroller_server|[p]lanner_server|[r]ecoveries_server|[b]t_navigator|[l]ifecycle_manager|[a]stra.launch.xml|[a]stra_camera|[r]osbridge_websocket_launch.xml|[r]osbridge_websocket|[r]os2 launch icar_navigation' || true"
 fi
 pkill -f 'Rosmaster-App/rosmaster/app.py' || true
 pkill -f 'python3 app.py' || true
@@ -389,7 +676,7 @@ echo 'stop-issued'
 }
 
 function remoteEmergencyStopScript() {
-  const twist = JSON.stringify(ZERO_TWIST).replaceAll('"', '\\"');
+  const twist = shellQuote('{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}');
   return `
 set +e
 ${commonContainerLookup()}
@@ -398,6 +685,6 @@ if [ -z "$cid" ]; then
   echo 'No running icar container for fallback /cmd_vel publish' >&2
   exit 20
 fi
-docker exec "$cid" bash -lc "for setup in /opt/ros/foxy/setup.bash /root/icar_ros2_ws/icar_ws/install/setup.bash /root/icar_ros2_ws/software/library_ws/install/setup.bash /root/ros2_ws/install/setup.bash; do [ -f \\"\\$setup\\" ] && source \\"\\$setup\\"; done; timeout 3 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist \\"${twist}\\""
+docker exec "$cid" bash -lc "for setup in /opt/ros/foxy/setup.bash /root/icar_ros2_ws/icar_ws/install/setup.bash /root/icar_ros2_ws/software/library_ws/install/setup.bash /root/ros2_ws/install/setup.bash; do [ -f \\"\\$setup\\" ] && source \\"\\$setup\\"; done; timeout 3 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist ${twist}"
 `;
 }

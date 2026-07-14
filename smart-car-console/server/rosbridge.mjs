@@ -1,16 +1,33 @@
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import { ZERO_TWIST } from './control.mjs';
-import { addLog, updateRosbridge, updateTelemetry } from './state.mjs';
+import { parseDetectionsMessage } from './detectionParser.mjs';
+import { parseCompressedImage, parseImagePreview } from './imagePreview.mjs';
+import {
+  Tf2dBuffer,
+  parseOccupancyGrid,
+  parseOdometry,
+  parsePath,
+  parsePoseWithCovariance,
+  resolveMapPose
+} from './mapTelemetry.mjs';
+import { parsePointCloud2 } from './pointCloud.mjs';
+import {
+  addLog,
+  telemetry,
+  updateNavigation,
+  updateRosbridge,
+  updateTelemetry,
+  updateTopicActivity
+} from './state.mjs';
+import { rosbridgeType } from './topicDiscovery.mjs';
+import { subscriptionTopics } from './topicRegistry.mjs';
 
-const subscriptions = [
-  { topic: '/scan', type: 'sensor_msgs/LaserScan' },
-  { topic: '/imu/data_raw', type: 'sensor_msgs/Imu' },
-  { topic: '/imu/mag', type: 'sensor_msgs/MagneticField' },
-  { topic: '/voltage', type: 'std_msgs/Float32' },
-  { topic: '/vel_raw', type: 'geometry_msgs/Twist' },
-  { topic: '/joint_states', type: 'sensor_msgs/JointState' }
-];
+export const ROS2_TWIST_TYPE = 'geometry_msgs/msg/Twist';
+export const ROS2_BOOL_TYPE = 'std_msgs/msg/Bool';
+export const MANUAL_CMD_TOPIC = '/cmd_vel_manual';
+export const ESTOP_TOPIC = '/safety/estop';
+export const TRIGGER_SERVICE_TYPE = 'std_srvs/srv/Trigger';
 
 export class RosbridgeClient extends EventEmitter {
   constructor(getConfig) {
@@ -20,6 +37,14 @@ export class RosbridgeClient extends EventEmitter {
     this.connected = false;
     this.reconnectTimer = null;
     this.manualClose = false;
+    this.serviceSequence = 0;
+    this.pendingServiceCalls = new Map();
+    this.tfBuffer = new Tf2dBuffer();
+    this.amclPose = null;
+    this.odomPose = null;
+    this.perceptionSubscriptions = new Map([
+      ['/tracking_cmd_vel_shadow', { role: 'trackingVelocity', type: 'geometry_msgs/Twist' }]
+    ]);
   }
 
   get url() {
@@ -39,7 +64,10 @@ export class RosbridgeClient extends EventEmitter {
       this.connected = true;
       updateRosbridge({ connected: true, url: this.url, lastError: null });
       addLog('info', 'rosbridge', `Connected to ${this.url}`);
-      for (const sub of subscriptions) this.subscribe(sub);
+      this.advertise(MANUAL_CMD_TOPIC, ROS2_TWIST_TYPE, 1);
+      this.advertise(ESTOP_TOPIC, ROS2_BOOL_TYPE, 1);
+      for (const sub of subscriptionTopics()) this.subscribe(sub);
+      this.resubscribePerception();
     });
 
     ws.on('message', (data) => {
@@ -53,6 +81,8 @@ export class RosbridgeClient extends EventEmitter {
     ws.on('close', () => {
       const wasConnected = this.connected;
       this.connected = false;
+      this.resetLocalizationBuffers();
+      this.failPendingServiceCalls('ROSBridge connection closed');
       updateRosbridge({ connected: false, url: this.url });
       if (wasConnected) {
         addLog('warn', 'rosbridge', 'Connection closed; requesting stop fallback');
@@ -74,33 +104,70 @@ export class RosbridgeClient extends EventEmitter {
     this.manualClose = true;
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    this.resetLocalizationBuffers();
     this.ws?.close();
   }
 
-  subscribe({ topic, type }) {
+  resetLocalizationBuffers() {
+    this.tfBuffer.clear();
+    this.amclPose = null;
+    this.odomPose = null;
+  }
+
+  subscribe({ topic, type, throttleRate, queueLength }) {
+    if (!topic || !type) return;
     this.send({
       op: 'subscribe',
       topic,
       type,
-      throttle_rate: topic === '/scan' ? 120 : 200,
-      queue_length: 1
+      throttle_rate: throttleRate ?? (topic === '/scan' ? 120 : 200),
+      queue_length: queueLength ?? 1
     });
   }
 
-  publish(topic, type, msg) {
-    return this.send({ op: 'publish', topic, type, msg });
+  advertise(topic, type, queueSize = 1) {
+    return this.send({
+      op: 'advertise',
+      topic,
+      type,
+      queue_size: queueSize
+    });
+  }
+
+  setPerceptionSubscriptions(matches = {}) {
+    const next = new Map([
+      ['/tracking_cmd_vel_shadow', { role: 'trackingVelocity', type: 'geometry_msgs/Twist' }]
+    ]);
+    for (const match of Object.values(matches)) {
+      if (!match?.topic || !match?.type) continue;
+      const type = rosbridgeType(match.type);
+      if (!type) continue;
+      next.set(match.topic, { role: match.role, type });
+    }
+    this.perceptionSubscriptions = next;
+    this.resubscribePerception();
+  }
+
+  resubscribePerception() {
+    if (!this.connected) return;
+    for (const [topic, value] of this.perceptionSubscriptions.entries()) {
+      this.subscribe({ topic, type: value.type });
+    }
+  }
+
+  publish(topic, msg) {
+    return this.send({ op: 'publish', topic, msg });
   }
 
   publishTwist(twist) {
-    return this.publish('/cmd_vel', 'geometry_msgs/Twist', twist);
+    return this.publish(MANUAL_CMD_TOPIC, twist);
   }
 
-  emergencyStop(repeat = 4) {
+  stopManual(repeat = 4) {
     let sent = 0;
     const sendZero = () => {
       if (this.connected) {
-        this.publishTwist(ZERO_TWIST);
-        sent += 1;
+        if (this.publishTwist(ZERO_TWIST)) sent += 1;
       }
     };
     sendZero();
@@ -108,6 +175,71 @@ export class RosbridgeClient extends EventEmitter {
       setTimeout(sendZero, index * 80);
     }
     return sent > 0;
+  }
+
+  emergencyStop(repeat = 4) {
+    const estopSent = this.publish(ESTOP_TOPIC, { data: true });
+    const zeroSent = this.stopManual(repeat);
+    return estopSent || zeroSent;
+  }
+
+  async resetSafety() {
+    if (!this.publish(ESTOP_TOPIC, { data: false })) {
+      return this.recordServiceResult('/safety/reset', {
+        ok: false,
+        success: false,
+        message: 'ROSBridge is not connected'
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return this.callTrigger('/safety/reset');
+  }
+
+  callTrigger(service, timeoutMs = 2500) {
+    if (!this.connected) {
+      return Promise.resolve(this.recordServiceResult(service, {
+        ok: false,
+        success: false,
+        message: 'ROSBridge is not connected'
+      }));
+    }
+    const id = `trigger-${Date.now()}-${this.serviceSequence += 1}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingServiceCalls.delete(id);
+        resolve(this.recordServiceResult(service, {
+          ok: false,
+          success: false,
+          message: `${service} timed out after ${timeoutMs} ms`
+        }));
+      }, timeoutMs);
+      this.pendingServiceCalls.set(id, { service, resolve, timer });
+      if (!this.send({
+        op: 'call_service',
+        id,
+        service,
+        type: TRIGGER_SERVICE_TYPE,
+        args: {}
+      })) {
+        clearTimeout(timer);
+        this.pendingServiceCalls.delete(id);
+        resolve(this.recordServiceResult(service, {
+          ok: false,
+          success: false,
+          message: 'ROSBridge is not connected'
+        }));
+      }
+    });
+  }
+
+  failPendingServiceCalls(message) {
+    for (const pending of this.pendingServiceCalls.values()) {
+      clearTimeout(pending.timer);
+      pending.resolve(this.recordServiceResult(
+        pending.service, { ok: false, success: false, message }
+      ));
+    }
+    this.pendingServiceCalls.clear();
   }
 
   send(message) {
@@ -123,15 +255,204 @@ export class RosbridgeClient extends EventEmitter {
     } catch {
       return;
     }
+    if (payload.op === 'service_response' && payload.id) {
+      this.handleServiceResponse(payload);
+      return;
+    }
     if (payload.op !== 'publish' || !payload.topic) return;
     const msg = payload.msg ?? {};
+    const receivedAt = new Date().toISOString();
+    updateTopicActivity(payload.topic, receivedAt);
     if (payload.topic === '/scan') updateTelemetry({ lidar: parseScan(msg) });
     if (payload.topic === '/imu/data_raw') updateTelemetry({ imu: parseImu(msg) });
     if (payload.topic === '/imu/mag') updateTelemetry({ imu: parseMag(msg) });
     if (payload.topic === '/voltage') updateTelemetry({ voltage: parseVoltage(msg) });
     if (payload.topic === '/vel_raw') updateTelemetry({ velocity: parseVelocity(msg) });
-    if (payload.topic === '/joint_states') updateTelemetry({ encoders: parseJointStates(msg) });
+    if (payload.topic === '/map') updateTelemetry({ map: parseOccupancyGrid(msg) });
+    if (payload.topic === '/global_costmap/costmap') updateTelemetry({ globalCostmap: parseOccupancyGrid(msg) });
+    if (payload.topic === '/local_costmap/costmap') updateTelemetry({ localCostmap: parseOccupancyGrid(msg) });
+    if (payload.topic === '/plan') updateTelemetry({ globalPath: parsePath(msg) });
+    if (payload.topic === '/local_plan') updateTelemetry({ localPath: parsePath(msg) });
+    if (payload.topic === '/patrol/route') updateTelemetry({ patrolRoute: parsePath(msg) });
+    if (payload.topic === '/odom') {
+      this.odomPose = { ...parseOdometry(msg), source: 'odom', updatedAt: receivedAt };
+      this.refreshGlobalPose(receivedAt, { odometry: this.odomPose });
+    }
+    if (payload.topic === '/amcl_pose') {
+      this.amclPose = { ...parsePoseWithCovariance(msg), updatedAt: receivedAt };
+      this.refreshGlobalPose(receivedAt, { amclPose: this.amclPose });
+    }
+    if (payload.topic === '/tf' || payload.topic === '/tf_static') {
+      this.tfBuffer.update(msg, receivedAt, payload.topic === '/tf_static');
+      this.refreshGlobalPose(receivedAt);
+    }
+    if (payload.topic === '/control/active_source') {
+      updateNavigation({ activeSource: String(msg.data ?? 'UNKNOWN') });
+    }
+    if (payload.topic === '/safety/state') {
+      updateNavigation({ safetyState: String(msg.data ?? 'UNKNOWN') });
+    }
+    if (payload.topic === '/chassis/connected') {
+      updateNavigation({ chassisConnected: Boolean(msg.data) });
+    }
+    if (payload.topic === '/patrol/status') {
+      updateNavigation({ patrol: parsePatrolStatus(msg) });
+    }
+    if (payload.topic === '/navigate_to_pose/_action/status') {
+      updateNavigation({ action: parseNavigateStatus(msg, receivedAt) });
+    }
+    if (payload.topic === '/alarm') this.emit('car-alarm', parseTypedAlarm(msg));
+    if (payload.topic === '/alarm_events') this.emit('car-alarm', parseAlarmEvent(msg));
+    const perception = this.perceptionSubscriptions.get(payload.topic);
+    if (perception) this.handlePerceptionMessage(payload.topic, perception, msg);
   }
+
+  refreshGlobalPose(now, partial = {}) {
+    const tfPose = this.tfBuffer.resolve('map', 'base_footprint');
+    const resolved = resolveMapPose({ amcl: this.amclPose, tfPose, odom: this.odomPose }, now);
+    const previous = telemetry.pose;
+    const hasPreviousPose = previous?.pose?.x !== null && previous?.pose?.y !== null;
+    const pose = !resolved.connected && hasPreviousPose
+      ? {
+          ...previous,
+          connected: false,
+          stale: true,
+          disconnectedReason: resolved.reason,
+          reason: resolved.reason
+        }
+      : resolved;
+    updateTelemetry({ ...partial, tfPose, pose });
+  }
+
+  handleServiceResponse(payload) {
+    const pending = this.pendingServiceCalls.get(payload.id);
+    if (!pending) return;
+    this.pendingServiceCalls.delete(payload.id);
+    clearTimeout(pending.timer);
+    const values = payload.values ?? {};
+    const transportOk = payload.result !== false;
+    const success = transportOk && values.success !== false;
+    const result = this.recordServiceResult(pending.service, {
+      ok: transportOk,
+      success,
+      message: String(values.message ?? (success ? 'accepted' : 'rejected'))
+    });
+    pending.resolve(result);
+  }
+
+  recordServiceResult(service, result) {
+    const completed = {
+      ...result,
+      service,
+      completedAt: new Date().toISOString()
+    };
+    updateNavigation({ lastService: completed });
+    return completed;
+  }
+
+  handlePerceptionMessage(topic, perception, msg) {
+    if (perception.role === 'camera') {
+      updateTelemetry({ camera: { ...parseVisualMessage(msg, 'camera', perception.type), topic, type: perception.type } });
+    }
+    if (perception.role === 'depth') {
+      updateTelemetry({ depth: { ...parseVisualMessage(msg, 'depth', perception.type), topic, type: perception.type } });
+    }
+    if (perception.role === 'ir') {
+      updateTelemetry({ ir: { ...parseVisualMessage(msg, 'ir', perception.type), topic, type: perception.type } });
+    }
+    if (perception.role === 'pointCloud') {
+      updateTelemetry({ pointCloud: { ...parsePointCloud2(msg), topic, type: perception.type } });
+    }
+    if (perception.role === 'trackingImage') {
+      updateTelemetry({
+        tracking: {
+          connected: true,
+          imageTopic: topic,
+          image: { ...parseVisualMessage(msg, 'tracking', perception.type), topic, type: perception.type }
+        }
+      });
+    }
+    if (perception.role === 'trackingVelocity') {
+      updateTelemetry({
+        tracking: {
+          connected: true,
+          velocityTopic: topic,
+          shadowTwist: parseTrackingTwist(msg)
+        }
+      });
+    }
+    if (perception.role === 'detections') {
+      updateTelemetry({
+        detections: {
+          ...parseDetectionsMessage(msg, perception.type),
+          topic,
+          type: perception.type
+        }
+      });
+    }
+  }
+}
+
+function parseVisualMessage(msg, role, type) {
+  if (type?.includes('CompressedImage')) return parseCompressedImage(msg);
+  return parseImagePreview(msg, role);
+}
+
+function parseAlarmEvent(msg = {}) {
+  const data = msg.data ?? msg;
+  if (typeof data !== 'string') {
+    return data?.code ? parseTypedAlarm(data) : data;
+  }
+  try {
+    const parsed = JSON.parse(data);
+    return parsed?.code ? parseTypedAlarm(parsed) : parsed;
+  } catch {
+    return data;
+  }
+}
+
+function parseTypedAlarm(msg = {}) {
+  const severity = Number(msg.severity);
+  const severityName = ['info', 'warning', 'error', 'critical'][severity] ?? 'warning';
+  const code = String(msg.code ?? 'car_alarm');
+  return {
+    source: String(msg.source ?? 'car'),
+    type: code,
+    severity: severityName,
+    title: code,
+    message: String(msg.message ?? code),
+    state: String(msg.state ?? ''),
+    active: msg.active !== false,
+    dedupeKey: `${String(msg.source ?? 'car')}:${code}`,
+    header: msg.header ?? null
+  };
+}
+
+function parsePatrolStatus(msg = {}) {
+  const data = msg.data ?? msg;
+  let parsed = data;
+  if (typeof data === 'string') {
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      return {
+        state: 'INVALID',
+        reason: 'patrol status is not valid JSON'
+      };
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { state: 'INVALID', reason: 'patrol status is not an object' };
+  }
+  return {
+    state: String(parsed.state ?? 'UNKNOWN'),
+    mode: parsed.mode == null ? null : String(parsed.mode),
+    waypoint: parsed.waypoint == null ? null : String(parsed.waypoint),
+    index: finite(parsed.index),
+    attempt: finite(parsed.attempt),
+    routeConfigured: Boolean(parsed.route_configured),
+    reason: parsed.reason == null ? null : String(parsed.reason)
+  };
 }
 
 function finite(value, fallback = null) {
@@ -223,13 +544,18 @@ function parseMag(msg) {
 }
 
 function parseVoltage(msg) {
-  const battery = round(msg.data ?? msg.voltage ?? msg.value, 2);
+  const rawBattery = round(msg.data ?? msg.voltage ?? msg.value, 2);
+  const battery = rawBattery !== null && rawBattery >= 1 ? rawBattery : null;
+  const invalidReason = rawBattery !== null && rawBattery < 1
+    ? `Ignoring invalid /voltage sample ${rawBattery} V`
+    : null;
   return {
     connected: battery !== null,
+    rawBattery,
     battery,
-    current: round(msg.current, 2),
-    power: round(battery !== null && msg.current !== undefined ? battery * finite(msg.current, 0) : msg.power, 2),
-    percent: estimateBatteryPercent(battery)
+    percent: estimateBatteryPercent(battery),
+    percentEstimated: true,
+    invalidReason
   };
 }
 
@@ -249,17 +575,32 @@ function parseVelocity(msg) {
   };
 }
 
-function parseJointStates(msg) {
-  const positions = Array.isArray(msg.position) ? msg.position : [];
-  const velocities = Array.isArray(msg.velocity) ? msg.velocity : [];
-  const left = finite(positions[0]);
-  const right = finite(positions[1]);
+function parseTrackingTwist(msg) {
   return {
-    connected: positions.length > 0 || velocities.length > 0,
-    leftTicks: left === null ? null : Math.round(left * 1000),
-    rightTicks: right === null ? null : Math.round(right * 1000),
-    deltaTicks: left === null || right === null ? null : Math.round((right - left) * 1000),
-    leftRadPerSec: round(velocities[0], 3),
-    rightRadPerSec: round(velocities[1], 3)
+    linear: {
+      x: round(msg.linear?.x, 3),
+      y: round(msg.linear?.y, 3),
+      z: round(msg.linear?.z, 3)
+    },
+    angular: {
+      x: round(msg.angular?.x, 3),
+      y: round(msg.angular?.y, 3),
+      z: round(msg.angular?.z, 3)
+    }
+  };
+}
+
+function parseNavigateStatus(msg = {}, updatedAt = new Date().toISOString()) {
+  const statuses = Array.isArray(msg.status_list) ? msg.status_list : [];
+  const active = statuses.filter((entry) => [1, 2, 3].includes(Number(entry.status)));
+  const latest = statuses.at(-1);
+  const names = {
+    0: 'UNKNOWN', 1: 'ACCEPTED', 2: 'EXECUTING', 3: 'CANCELING',
+    4: 'SUCCEEDED', 5: 'CANCELED', 6: 'ABORTED'
+  };
+  return {
+    status: names[Number(latest?.status)] ?? 'UNKNOWN',
+    activeGoals: active.length,
+    updatedAt
   };
 }

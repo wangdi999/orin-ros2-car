@@ -1,0 +1,6 @@
+patrol_manager:
+  ros__parameters:
+    goal_timeout_sec: 120.0
+    safety_state_timeout_sec: 0.30
+    status_active_rate_hz: 10.0
+    status_idle_rate_hz: 2.0

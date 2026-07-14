@@ -1,5 +1,19 @@
 import { spawn } from 'node:child_process';
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function redactSensitiveText(value, config = {}) {
+  let text = String(value ?? '');
+  for (const secret of [config?.car?.sshPassword, config?.car?.sshHostKey]) {
+    if (secret) text = text.replace(new RegExp(escapeRegex(secret), 'g'), '[REDACTED]');
+  }
+  text = text.replace(/SHA256:[A-Za-z0-9+/=]{16,}/g, '[REDACTED_HOST_KEY]');
+  text = text.replace(/\b(password|passwd|token|secret|host[ _-]?key)\b\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]');
+  return text;
+}
+
 export class SshExecutor {
   constructor(getConfig, logger) {
     this.getConfig = getConfig;
@@ -23,6 +37,7 @@ export class SshExecutor {
     ];
 
     const startedAt = Date.now();
+    const safe = (value) => redactSensitiveText(value, config);
     return await new Promise((resolve) => {
       let child;
       try {
@@ -36,10 +51,10 @@ export class SshExecutor {
           ok: false,
           code: null,
           stdout: '',
-          stderr: error.message,
+          stderr: safe(error.message),
           timedOut: false,
           durationMs: Date.now() - startedAt,
-          command: commandText
+          command: safe(commandText)
         });
         return;
       }
@@ -63,11 +78,11 @@ export class SshExecutor {
         resolve({
           ok: false,
           code: null,
-          stdout,
-          stderr: error.message,
+          stdout: safe(stdout),
+          stderr: safe(error.message),
           timedOut,
           durationMs: Date.now() - startedAt,
-          command: commandText
+          command: safe(commandText)
         });
       });
       child.on('close', (code) => {
@@ -75,11 +90,11 @@ export class SshExecutor {
         resolve({
           ok: code === 0 && !timedOut,
           code,
-          stdout,
-          stderr,
+          stdout: safe(stdout),
+          stderr: safe(stderr),
           timedOut,
           durationMs: Date.now() - startedAt,
-          command: commandText
+          command: safe(commandText)
         });
       });
     });

@@ -2,10 +2,23 @@ node_modules/
 dist/
 logs/
 *.log
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+*.egg-info/
+*.o
+*.so
 .env
 .env.*
 .tmp/
+tmp/
 .remote-check/
+.ros2-navigation-staging/
+artifacts/navigation/raw/
+artifacts/navigation/*.png
+smart-car-console/output/
 
 smart-car-console/local-config.json
 smart-car-console/node_modules/

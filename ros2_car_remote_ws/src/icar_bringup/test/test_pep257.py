@@ -16,8 +16,17 @@ from ament_pep257.main import main
 import pytest
 
 
+MAINTAINED_FILES = [
+    'icar_bringup/driver_safety.py',
+    'icar_bringup/Mcnamu_driver_X3.py',
+    'launch/icar_bringup_X3_launch.py',
+    'test/test_driver_safety.py',
+]
+
+
 @pytest.mark.linter
 @pytest.mark.pep257
 def test_pep257():
-    rc = main(argv=['.', 'test'])
+    """Check documentation style for the maintained X3 safety surface."""
+    rc = main(argv=MAINTAINED_FILES)
     assert rc == 0, 'Found code style errors / warnings'

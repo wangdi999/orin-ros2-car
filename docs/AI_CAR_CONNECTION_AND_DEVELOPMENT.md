@@ -72,7 +72,7 @@
 | --- | --- |
 | Wi-Fi 名称 | `ohcar` |
 | Wi-Fi 密码 | 本地私有配置，不提交仓库 |
-| 常见小车 IP | `192.168.43.205` |
+| 当前小车 IP | `192.168.43.137` |
 | SSH 用户 | `jetson` |
 | SSH 密码 | 本地私有配置，不提交仓库 |
 | VNC 密码 | 本地私有配置，不提交仓库 |
@@ -104,20 +104,20 @@ netsh wlan connect name=ohcar
 
 1. 给小车上电，等待 Ubuntu 桌面和终端启动完成。
 2. 确认小车连接到 `ohcar`，或电脑和小车处于同一网段。
-3. 在小车屏幕或 VNC 里的终端确认当前 IP。常见显示为 `MY_IP: 192.168.43.205`。
+3. 在小车屏幕或 VNC 里的终端确认当前 IP。当前配置为 `192.168.43.137`。
 4. 在 Windows PowerShell 检查连通性：
 
 ```powershell
-ping 192.168.43.205
-Test-NetConnection 192.168.43.205 -Port 22
-Test-NetConnection 192.168.43.205 -Port 5900
+ping 192.168.43.137
+Test-NetConnection 192.168.43.137 -Port 22
+Test-NetConnection 192.168.43.137 -Port 5900
 ```
 
 5. 使用 VNC 连接小车桌面：
 
 ```powershell
 cd D:\code\project\smart-car-remote-control-20260707
-.\scripts\connect_car_vnc.ps1 -CarIp 192.168.43.205
+.\scripts\connect_car_vnc.ps1 -CarIp 192.168.43.137
 ```
 
 6. VNC 密码使用本地私有设备密码。
@@ -288,6 +288,12 @@ npm run build
 - 改默认值：改 `smart-car-console/server/config.mjs` 中 `defaults.control`。
 - 改转换逻辑：改 `smart-car-console/server/control.mjs`，并同步更新测试。
 
+遥控转向与直行校正：
+
+- `control.turnScale` 控制操作侧转向到 `/cmd_vel.angular.z` 的符号，当前默认为 `-1`，用于适配网页 A/D 和实车转向方向。
+- `control.straightAssist` 只在前进/倒退且没有手动转向或横移输入时生效，使用 `/vel_raw.angular` 做小幅负反馈补偿。
+- 现场验证直行校正时先低速，建议 `linearLimit <= 0.10`、`angularLimit <= 0.30`；如果补偿方向相反，优先调整 `straightAssist.feedbackSign`。
+
 新增遥测 topic：
 
 1. 在 `smart-car-console/server/rosbridge.mjs` 的 `subscriptions` 加 topic 和类型。
@@ -322,9 +328,9 @@ npm run build
 推荐流程：
 
 ```powershell
-scp -r .\ros2_car_remote_ws\src\icar_ctrl jetson@192.168.43.205:/home/jetson/remote_ws_src/
-scp -r .\ros2_car_remote_ws\src\icar_bringup jetson@192.168.43.205:/home/jetson/remote_ws_src/
-ssh jetson@192.168.43.205
+scp -r .\ros2_car_remote_ws\src\icar_ctrl jetson@192.168.43.137:/home/jetson/remote_ws_src/
+scp -r .\ros2_car_remote_ws\src\icar_bringup jetson@192.168.43.137:/home/jetson/remote_ws_src/
+ssh jetson@192.168.43.137
 ```
 
 在小车 Jetson 上：
@@ -391,3 +397,84 @@ rosbridge 失败：
 - 不把 `local-config.json`、日志或构建产物提交进项目。
 - 对 motion-control 改动至少跑 `npm test`，物理测试前先零速度和低速短脉冲。
 - 车端 ROS 包依赖不完整时，不要在 Windows 侧强行验证 ROS import；应在车端 Docker 或 ROS2 Foxy 环境中验证。
+
+## 15. ROS2 安全导航闭环（2026-07-13）
+
+当前可变车端地址是 `192.168.43.137`，必须以 `local-config.json` 或运行参数为准，不能把该地址当作永久设备身份。用户已恢复本地和车端非运动测试；任何非零 Twist、导航目标、巡航、返航或模拟低电返航仍需事先汇报并取得明确批准。
+
+导航运行栈统一设置 `ROS_LOCALHOST_ONLY=1`，并通过 `fastdds_localhost.xml` 把 UDPv4 限定到 `127.0.0.1`、把 initial-peer range 扩为 64，以避免车端 host-network/Wi-Fi 和 participant churn 下的发现不完整。所有 ROS 节点和 rosbridge 都在同一容器网络命名空间；Windows 控制台只通过 9090 WebSocket 接入，不直接参与 DDS。
+
+### 15.1 唯一速度链路
+
+常规速度链路固定为：
+
+```text
+控制台 /cmd_vel_manual ─┐
+                        ├─ cmd_vel_arbiter ─ /cmd_vel ─ X3 驱动
+Nav2 /cmd_vel_nav ──────┘
+```
+
+- `cmd_vel_arbiter` 是 `/cmd_vel` 的唯一常规发布者；驱动发现发布者不唯一或名称不符时拒绝命令并归零。
+- 急停/故障优先于人工，人工优先于导航；来源切换至少输出一个零周期。
+- 人工接管会请求取消当前巡航，旧导航命令不会自动恢复。
+- SSH 只保留向 `/cmd_vel` 发布一次零 Twist 的灾难恢复通道，禁止通过该通道发布非零命令。
+- 驱动硬上限为 `linear.x/y <= 0.35 m/s`、`angular.z <= 0.80 rad/s`；控制台和导航默认先限制为 `0.05 m/s`、`0.20 rad/s`。只有低速验收通过后，才可在本地配置中提高到 `0.10 m/s`、`0.40 rad/s`。
+
+### 15.2 新增状态与操作接口
+
+状态 topic：
+
+- `/control/active_source` (`std_msgs/msg/String`)
+- `/safety/state` (`std_msgs/msg/String`)
+- `/chassis/connected` (`std_msgs/msg/Bool`)
+- `/patrol/status` (`std_msgs/msg/String`，JSON 状态心跳)
+- `/alarm` (`car_interfaces/msg/Alarm`)
+- `/alarm_events` (`std_msgs/msg/String`，兼容控制台)
+
+操作接口：
+
+- `/safety/estop` (`std_msgs/msg/Bool`)
+- `/safety/reset`、`/safety/simulate_low_battery` (`std_srvs/srv/Trigger`)
+- `/patrol/start`、`/patrol/cancel`、`/patrol/return_home` (`std_srvs/srv/Trigger`)
+
+复位不是本地 UI 解锁：控制台先发送人工零命令和 `estop=false`，再调用 `/safety/reset`；只有车端返回 `success=true` 才清除本地急停显示。健康状态、TF、所有权、零输出或活动 action 任一不满足时，车端必须拒绝复位并保留原因。
+
+### 15.3 互斥运行模式
+
+`smart-car-console/local-config.json` 的 `navigation.mode` 只允许：
+
+- `safe_base`：驱动、描述、雷达、IMU、EKF、仲裁和安全节点；没有 `map -> odom` 所有者。
+- `mapping`：在 safe base 上仅由 Cartographer 发布 `map -> odom`。
+- `navigation`：在 safe base 上仅由 AMCL 发布 `map -> odom`，并启动 NavFn、DWB、BT Navigator 和巡航管理器。
+- `demo`：组合已验收的 navigation 与路线；`auto_start_patrol` 始终默认为 `false`。
+
+切换模式时控制台会先停止旧导航相关进程。Cartographer 与 AMCL 同时存在、topic 所有者不唯一、TF 缺失或心跳陈旧都会锁存安全故障并保持零输出。雷达 frame 必须直接配置为 `laser_link`，禁止新增 `laser -> laser_link` 静态 TF 掩盖命名错误。
+
+### 15.4 部署和证据
+
+未来收到测试命令后，先审阅 dry-run；脚本不保存密码、不关闭 SSH host-key 校验，也不会自动启动运行节点：
+
+```powershell
+.\scripts\deploy_ros2_navigation.ps1 -CarIp 192.168.43.137 -DryRun
+.\scripts\deploy_ros2_navigation.ps1 -CarIp 192.168.43.137 -UseConsoleConfig
+```
+
+`-UseConsoleConfig` 只在运行时读取已忽略的 `smart-car-console/local-config.json`，并在命令回显中隐藏密码和 host key；配置了 OpenSSH key 时可省略该开关。
+
+部署使用不可变 release staging，仅在四个相关包构建（以及默认测试）成功后原子切换 overlay；失败时保留当前 overlay。`-SkipTests` 只用于明确的诊断场景，不能作为验收依据。
+
+只读证据采集同样必须等用户下令后执行：
+
+```powershell
+.\scripts\collect_navigation_evidence.ps1 -CarIp 192.168.43.137 -Gate d1 -UseConsoleConfig
+```
+
+输出位于被忽略的 `artifacts/navigation/raw/`，不包含密码、host key 或 rosbag；脚本不会发布 Twist、调用服务或发送 action goal，也不会自行把门禁标为 PASS。
+
+### 15.5 测试与运动批准
+
+1. 当前阶段不连接小车、不运行本地或车端测试，等待用户进一步命令。
+2. 恢复测试后，先完成纯逻辑、控制台、Foxy 构建和车端只读/零速度检查。
+3. 任一需要或可能导致小车移动的测试，都必须先向用户汇报测试项、限速和场地要求，并等待明确批准；批准前不得发送非零 Twist、导航 goal、巡航或模拟低电返航请求。
+4. 首次运动前确认轮子架空或场地清空，按 `0.05/0.20 -> 0.10/0.40` 分级；每个测试项结束都发送零 Twist。
+5. D1-D4 严格顺序门禁，上一日没有完整证据 PASS 时不得进入下一日物理任务。

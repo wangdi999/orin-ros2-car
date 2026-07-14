@@ -1,0 +1,32 @@
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    # The target robot_localization 3.1.2 suppresses repeated timestamps.
+    # Predict between the 10 Hz raw samples so /odom honors the 30 Hz gate.
+    sensor_timeout: 0.02
+    two_d_mode: true
+    transform_time_offset: 0.0
+    transform_timeout: 0.0
+    print_diagnostics: true
+    publish_tf: true
+    publish_acceleration: false
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_footprint
+    world_frame: odom
+
+    odom0: /odom_raw
+    odom0_config: [true,  true,  false,
+                   false, false, true,
+                   true,  true,  false,
+                   false, false, true,
+                   false, false, false]
+    odom0_queue_size: 10
+    odom0_differential: false
+    odom0_relative: false
+
+    # The installed controller reported invariant raw gyro and onboard
+    # attitude values during bounded yaw tests on 2026-07-13.  Do not fuse a
+    # demonstrably stale absolute heading: use wheel-odometry pose yaw and
+    # yaw rate until the IMU passes the rotation-response gate.

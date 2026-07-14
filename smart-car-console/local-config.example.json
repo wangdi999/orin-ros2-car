@@ -1,15 +1,43 @@
 {
   "car": {
-    "host": "192.168.43.205",
+    "host": "192.168.43.137",
     "sshUser": "jetson",
     "sshPassword": "",
     "sshHostKey": "SHA256:AJffjk3YWwStux7ZbdKdft3teC8b7Jsubuvv4zMYuD8",
     "plinkPath": "D:\\putty\\plink.exe"
   },
   "control": {
-    "maxLinearMps": 0.35,
-    "maxAngularRps": 1.2,
+    "maxLinearMps": 0.1,
+    "maxAngularRps": 0.4,
+    "turnScale": -1,
     "deadZone": 0.05,
-    "watchdogMs": 450
+    "watchdogMs": 500,
+    "heartbeatProtectionEnabled": true,
+    "straightAssist": {
+      "enabled": true,
+      "feedbackSign": -1,
+      "gain": 0.5,
+      "maxCorrectionRps": 0.25,
+      "feedbackDeadZoneRps": 0.02,
+      "feedbackMaxAgeMs": 600,
+      "minForwardInput": 0.2
+    }
+  },
+  "video": {
+    "width": 640,
+    "height": 480,
+    "fps": 20,
+    "jpegQuality": 70,
+    "latencyTargetMs": 100
+  },
+  "navigation": {
+    "enabled": true,
+    "mode": "safe_base",
+    "overlaySetup": "/root/ros2_navigation_overlay/install/setup.bash",
+    "map": "/root/ros2_navigation_overlay/install/share/icar_navigation/maps/campus_map.yaml",
+    "routeFile": "/root/ros2_navigation_overlay/install/share/icar_navigation/config/patrol_route.yaml",
+    "maxLinearMps": 0.05,
+    "maxAngularRps": 0.2,
+    "autoStartPatrol": false
   }
 }

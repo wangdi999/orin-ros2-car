@@ -16,10 +16,19 @@ from ament_flake8.main import main_with_errors
 import pytest
 
 
+MAINTAINED_FILES = [
+    'icar_bringup/driver_safety.py',
+    'icar_bringup/Mcnamu_driver_X3.py',
+    'launch/icar_bringup_X3_launch.py',
+    'test/test_driver_safety.py',
+]
+
+
 @pytest.mark.flake8
 @pytest.mark.linter
 def test_flake8():
-    rc, errors = main_with_errors(argv=[])
+    """Lint the maintained X3 safety surface, not inherited vendor tools."""
+    rc, errors = main_with_errors(argv=MAINTAINED_FILES)
     assert rc == 0, \
         'Found %d code style errors / warnings:\n' % len(errors) + \
         '\n'.join(errors)

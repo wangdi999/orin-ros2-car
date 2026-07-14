@@ -1,0 +1,97 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:icar-navigation:patrol-route:v1"
+title: "iCar patrol route"
+type: object
+additionalProperties: false
+required:
+  - configured
+  - frame_id
+  - home
+  - waypoints
+  - default_dwell_sec
+  - max_retries
+  - failure_policy
+  - loop
+properties:
+  configured:
+    type: boolean
+    description: "Execution is refused while false. Set true only after map measurements are recorded."
+  frame_id:
+    const: map
+  home:
+    $ref: "#/$defs/draftWaypoint"
+  waypoints:
+    type: array
+    minItems: 3
+    maxItems: 3
+    items:
+      $ref: "#/$defs/draftWaypoint"
+  default_dwell_sec:
+    type: number
+    minimum: 0.0
+    default: 3.0
+  max_retries:
+    type: integer
+    minimum: 0
+    maximum: 3
+    default: 1
+  failure_policy:
+    type: string
+    enum: [skip, abort]
+    default: skip
+  loop:
+    type: boolean
+    default: false
+allOf:
+  - if:
+      properties:
+        configured:
+          const: true
+      required: [configured]
+    then:
+      properties:
+        home:
+          $ref: "#/$defs/waypoint"
+        waypoints:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            $ref: "#/$defs/waypoint"
+$defs:
+  draftWaypoint:
+    type: object
+    additionalProperties: false
+    required: [name, x, y, yaw]
+    properties:
+      name:
+        type: string
+        minLength: 1
+      x:
+        type: [number, "null"]
+      y:
+        type: [number, "null"]
+      yaw:
+        type: [number, "null"]
+      dwell_sec:
+        type: number
+        minimum: 0.0
+  waypoint:
+    type: object
+    additionalProperties: false
+    required: [name, x, y, yaw]
+    properties:
+      name:
+        type: string
+        minLength: 1
+      x:
+        type: number
+      y:
+        type: number
+      yaw:
+        type: number
+        minimum: -3.141592653589793
+        maximum: 3.141592653589793
+      dwell_sec:
+        type: number
+        minimum: 0.0

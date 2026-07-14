@@ -1,0 +1,26 @@
+# Safety template: do not replace null with guessed coordinates.
+# After the final map is measured, review all four poses and set configured: true.
+configured: false
+frame_id: map
+home:
+  name: home
+  x: null
+  y: null
+  yaw: null
+waypoints:
+  - name: point_a
+    x: null
+    y: null
+    yaw: null
+  - name: point_b
+    x: null
+    y: null
+    yaw: null
+  - name: point_c
+    x: null
+    y: null
+    yaw: null
+default_dwell_sec: 3.0
+max_retries: 1
+failure_policy: skip
+loop: false

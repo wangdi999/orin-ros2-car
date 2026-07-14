@@ -1,111 +1,86 @@
-from ament_index_python.packages import get_package_share_path
+"""Hardware-only X3 bringup; navigation and EKF live in icar_navigation."""
 
+import os
+
+from ament_index_python.packages import (
+    get_package_share_directory,
+)
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.substitutions import Command, LaunchConfiguration
-
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
-import os
-from ament_index_python.packages import get_package_share_directory
 
-from launch.actions import IncludeLaunchDescription
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-
-print("---------------------robot_type = x3---------------------")
 def generate_launch_description():
-    urdf_tutorial_path = get_package_share_path('icar_description')
-    default_model_path = urdf_tutorial_path / 'urdf/icar_X3.urdf'
-    default_rviz_config_path = urdf_tutorial_path / 'rviz/icar.rviz'
+    """Create the X3 driver, raw odometry, IMU filter and fixed TF owners."""
+    description_share = get_package_share_directory('icar_description')
+    default_model = os.path.join(
+        description_share, 'urdf', 'icar_X3.urdf')
+    bringup_share = get_package_share_directory('icar_bringup')
+    imu_config = os.path.join(bringup_share, 'param', 'imu_filter_param.yaml')
 
-    gui_arg = DeclareLaunchArgument(name='gui', default_value='false', choices=['true', 'false'],
-                                    description='Flag to enable joint_state_publisher_gui')
-    model_arg = DeclareLaunchArgument(name='model', default_value=str(default_model_path),
-                                      description='Absolute path to robot urdf file')
-    rviz_arg = DeclareLaunchArgument(name='rvizconfig', default_value=str(default_rviz_config_path),
-                                     description='Absolute path to rviz config file')
-    pub_odom_tf_arg = DeclareLaunchArgument('pub_odom_tf', default_value='false',
-                                            description='Whether to publish the tf from the original odom to the base_footprint')
+    model = LaunchConfiguration('model')
+    robot_description = ParameterValue(Command(['xacro ', model]), value_type=str)
 
-    robot_description = ParameterValue(Command(['xacro ', LaunchConfiguration('model')]),
-                                       value_type=str)
+    arguments = [
+        DeclareLaunchArgument('model', default_value=default_model),
+        DeclareLaunchArgument('xlinear_limit', default_value='0.35'),
+        DeclareLaunchArgument('ylinear_limit', default_value='0.35'),
+        DeclareLaunchArgument('angular_limit', default_value='0.80'),
+        DeclareLaunchArgument('command_timeout_sec', default_value='0.30'),
+        DeclareLaunchArgument('reconnect_interval_sec', default_value='5.0'),
+        DeclareLaunchArgument('start_driver', default_value='true'),
+    ]
 
-    robot_state_publisher_node = Node(
+    robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
-        parameters=[{'robot_description': robot_description}]
-    )
-
-    # Depending on gui parameter, either launch joint_state_publisher or joint_state_publisher_gui
-    joint_state_publisher_node = Node(
-        package='joint_state_publisher',
-        executable='joint_state_publisher',
-        condition=UnlessCondition(LaunchConfiguration('gui'))
-    )
-
-    joint_state_publisher_gui_node = Node(
-        package='joint_state_publisher_gui',
-        executable='joint_state_publisher_gui',
-        condition=IfCondition(LaunchConfiguration('gui'))
-    )
-
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
+        name='robot_state_publisher',
         output='screen',
-        arguments=['-d', LaunchConfiguration('rvizconfig')],
+        parameters=[{'robot_description': robot_description}],
     )
-
-    imu_filter_config = os.path.join(
-        get_package_share_directory('icar_bringup'),
-        'param',
-        'imu_filter_param.yaml'
-    )
-
-    driver_node = Node(
+    driver = Node(
         package='icar_bringup',
         executable='Mcnamu_driver_X3',
+        name='driver_node',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('start_driver')),
+        parameters=[{
+            'xlinear_limit': ParameterValue(
+                LaunchConfiguration('xlinear_limit'), value_type=float),
+            'ylinear_limit': ParameterValue(
+                LaunchConfiguration('ylinear_limit'), value_type=float),
+            'angular_limit': ParameterValue(
+                LaunchConfiguration('angular_limit'), value_type=float),
+            'command_timeout_sec': ParameterValue(
+                LaunchConfiguration('command_timeout_sec'), value_type=float),
+            'reconnect_interval_sec': ParameterValue(
+                LaunchConfiguration('reconnect_interval_sec'), value_type=float),
+            'expected_cmd_vel_publisher': 'cmd_vel_arbiter',
+        }],
     )
-
     base_node = Node(
         package='icar_base_node',
         executable='base_node_X3',
-        # 当使用ekf融合时，该tf有ekf发布
-        parameters=[{'pub_odom_tf': LaunchConfiguration('pub_odom_tf')}]
+        name='base_node_X3',
+        output='screen',
+        parameters=[{'pub_odom_tf': False}],
     )
-
-    imu_filter_node = Node(
+    imu_filter = Node(
         package='imu_filter_madgwick',
         executable='imu_filter_madgwick_node',
-        parameters=[imu_filter_config]
+        name='imu_filter_madgwick',
+        output='screen',
+        parameters=[imu_config],
+        remappings=[('imu/data_raw', '/imu/data_raw'),
+                    ('imu/data', '/imu/data')],
     )
 
-    ekf_node = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([os.path.join(
-            get_package_share_directory('robot_localization'), 'launch'),
-            '/ekf_x1_x3_launch.py'])
-    )
-
-    icar_joy_node = Node(
-        package='icar_ctrl',
-        executable='icar_joy_X3',
-    )
-
-    return LaunchDescription([
-        gui_arg,
-        model_arg,
-        rviz_arg,
-        pub_odom_tf_arg,
-        joint_state_publisher_node,
-        joint_state_publisher_gui_node,
-        robot_state_publisher_node,
-        # rviz_node
-        driver_node,
+    return LaunchDescription(arguments + [
+        robot_state_publisher,
+        driver,
         base_node,
-        imu_filter_node,
-        ekf_node,
-        icar_joy_node
+        imu_filter,
     ])
