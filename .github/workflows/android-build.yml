@@ -17,8 +17,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - name: Install Gradle
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gradle
 
       - name: Build APK
         run: |
