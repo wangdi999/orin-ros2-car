@@ -18,25 +18,16 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Android SDK
-        run: |
-          ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-$ANDROID_HOME}
-          if [ -z "$ANDROID_SDK_ROOT" ]; then
-            ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
-          fi
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          # Accept licenses
-          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-          # Install required SDK
-          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0" > /dev/null 2>&1 || true
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35'
 
       - name: Build APK
         run: |
           cd android-remote-app
           curl -sL -o gradle-8.7-bin.zip https://services.gradle.org/distributions/gradle-8.7-bin.zip
           unzip -q gradle-8.7-bin.zip
-          GRADLE_HOME=$PWD/gradle-8.7
-          ANDROID_HOME=$ANDROID_SDK_ROOT
-          $GRADLE_HOME/bin/gradle assembleDebug
+          $PWD/gradle-8.7/bin/gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
