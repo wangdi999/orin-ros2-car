@@ -223,13 +223,18 @@ public class MainActivity extends Activity {
         connectButton = button("连接");
         styleButton(connectButton, Color.rgb(20, 210, 255), Color.rgb(0, 83, 122), Color.WHITE);
         connectButton.setOnClickListener(v -> toggleConnection());
-                                connectRow.addView(hostInput, weighted());
+        connectRow.addView(hostInput, weighted());
         connectRow.addView(portInput, fixedDp(86));
         connectRow.addView(connectButton, fixedDp(88));
         connectCard.addView(connectRow, matchWrap());
 
-                presetConnectRow.addView(actionButton("填入小车地址", v -> applyCarConnectionPreset()), weighted());
-                                root.addView(connectCard, matchWrapWithBottom(14));
+        LinearLayout presetConnectRow = row();
+        presetConnectRow.addView(
+                actionButton("填入小车地址", v -> applyCarConnectionPreset()),
+                weighted()
+        );
+        connectCard.addView(presetConnectRow, matchWrap());
+        root.addView(connectCard, matchWrapWithBottom(14));
 
         LinearLayout commandCard = panel();
         commandCard.addView(sectionTitle("主控方向"), matchWrap());
@@ -847,7 +852,13 @@ public class MainActivity extends Activity {
             setConnectionGuide("已连接。操作顺序：低速 -> 急停 -> 短按前进/后退 -> 观察小车和 /cmd_vel。");
             return;
         }
-        setConnectionGuide("正在连接 ws://" + host + ":" + port + " ...");
+        String host = hostInput == null ? "" : hostInput.getText().toString().trim();
+        String port = portInput == null ? "9090" : portInput.getText().toString().trim();
+        if (host.isEmpty()) {
+            setConnectionGuide("请输入小车 IP 地址，端口默认 9090。");
+            return;
+        }
+        setConnectionGuide("准备连接 ws://" + host + ":" + port);
     }
 
     private void setConnectionGuide(String text) {
