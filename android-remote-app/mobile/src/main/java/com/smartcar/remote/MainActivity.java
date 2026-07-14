@@ -192,7 +192,7 @@ public class MainActivity extends Activity {
 
         LinearLayout statusCard = panel();
         LinearLayout statusRow = row();
-        linkText = metric("链路", "OFFLINE");        packetText = metric("发送", "0");
+        linkText = metric("链路", "OFFLINE");        modeText = metric("类型", "ROS2");        packetText = metric("发送", "0");
         statusRow.addView(linkText, weighted());
         statusRow.addView(modeText, weighted());
         statusRow.addView(packetText, weighted());
@@ -207,7 +207,7 @@ public class MainActivity extends Activity {
 
         LinearLayout guideCard = panel();
         guideCard.addView(sectionTitle("上手步骤"), matchWrap());
-        guideCard.addView(hintText("1. 小车和手机连接同一网络；2. 小车启动 rosbridge，确认 9090 已监听；3. App 选择 CAR 后连接；4. 车轮悬空，速度 10%-25%，先试急停。"), matchWrap());
+        guideCard.addView(hintText("1. 手机和小车连接同一网络；2. 小车启动 rosbridge（端口 9090）；3. 输入小车 IP 后连接；4. 先低速试车，随时可急停。"), matchWrap());
         root.addView(guideCard, matchWrapWithBottom(14));
 
         LinearLayout connectCard = panel();
@@ -532,11 +532,7 @@ public class MainActivity extends Activity {
             setConnectionGuide("端口默认 9090（ROSBridge WebSocket）");
             return;
         }
-         else if (false && !host.equals("10.0.2.2")) {
-            setConnectionGuide("当前是 MOCK 模式，建议 IP 使用 10.0.2.2；如果要连真实小车，请先切换到 CAR。");
-        } else {
-            setConnectionGuide("正在连接 ws://" + host + ":" + port + " ...");
-        }
+        setConnectionGuide("正在连接 ws://" + host + ":" + port + " ...");
 
         String url = "ws://" + host + ":" + portNumber;
         setStatus("正在连接 ws://" + host + ":" + portNumber);
@@ -836,14 +832,12 @@ public class MainActivity extends Activity {
             setConnectionGuide("请先断开连接，再修改连接地址。");
             return;
         }
-        false = false;
         hostInput.setText("172.20.10.14");
         portInput.setText("9090");
-        modeButton.setText("真实小车：WebSocket");
-        setStatus("已切换到真实小车连接配置");
+        setStatus("已填入小车连接配置");
         refreshConnectionGuide();
         updateConnectionPanel();
-        addLog("已填入真实小车连接配置");
+        addLog("已填入小车连接配置");
     }
 
     
