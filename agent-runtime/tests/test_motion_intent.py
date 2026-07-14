@@ -70,6 +70,56 @@ def test_motion_parse_api_uses_safe_parser(tmp_path: Path) -> None:
     assert payload["intent"]["distance_m"] == 0.05
 
 
+def test_motion_execute_requires_confirmation(tmp_path: Path) -> None:
+    headers = {"Authorization": "Bearer test-token"}
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        response = client.post(
+            "/api/v1/agent/motion/execute",
+            headers=headers,
+            json={
+                "intent": {
+                    "action": "MOVE",
+                    "direction": "FORWARD",
+                    "distance_m": 0.10,
+                    "max_speed_mps": 0.05,
+                },
+                "confirmed": False,
+                "operator": "tester",
+                "source_text": "前进10厘米",
+            },
+        )
+
+    assert response.status_code == 409
+
+
+def test_motion_execute_calls_gateway_after_confirmation(tmp_path: Path) -> None:
+    headers = {"Authorization": "Bearer test-token"}
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        response = client.post(
+            "/api/v1/agent/motion/execute",
+            headers=headers,
+            json={
+                "intent": {
+                    "action": "MOVE",
+                    "direction": "FORWARD",
+                    "distance_m": 0.10,
+                    "max_speed_mps": 0.05,
+                },
+                "confirmed": True,
+                "operator": "tester",
+                "source_text": "前进10厘米",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["gateway_result"]["accepted"] is True
+    assert payload["gateway_result"]["mock"] is True
+
+
 def test_speech_transcribe_requires_asr_enabled(tmp_path: Path) -> None:
     headers = {"Authorization": "Bearer test-token"}
 

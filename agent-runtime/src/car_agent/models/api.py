@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from car_agent.models.motion import MotionIntent
+
 
 class AgentRequest(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
@@ -13,6 +15,13 @@ class AgentRequest(BaseModel):
 class MotionParseRequest(BaseModel):
     text: str = Field(min_length=1, max_length=500)
     user_id: str = Field(default="admin", min_length=1, max_length=100)
+
+
+class MotionExecuteRequest(BaseModel):
+    intent: MotionIntent
+    confirmed: bool = False
+    operator: str = Field(default="admin", min_length=1, max_length=100)
+    source_text: str = Field(default="", max_length=500)
 
 
 class SpeechTranscriptionRequest(BaseModel):

@@ -18,8 +18,9 @@ from car_agent.clients.motion_intent import (
     HeuristicMotionIntentProvider,
     OpenAICompatibleMotionIntentProvider,
     parse_motion_intent_heuristic,
+    validate_motion_intent,
 )
-from car_agent.clients.ros_gateway import HttpRobotGateway, InMemoryRobotGateway
+from car_agent.clients.ros_gateway import HttpRobotGateway, InMemoryRobotGateway, RobotGatewayError
 from car_agent.clients.tts_client import TtsNotifier
 from car_agent.config import Settings, get_settings
 from car_agent.features.alarm_reports import register_alarm_report_routes
@@ -28,6 +29,7 @@ from car_agent.models.api import (
     AgentRequest,
     ApprovalRequest,
     EmergencyStopRequest,
+    MotionExecuteRequest,
     MotionParseRequest,
     SpeechTranscriptionRequest,
     TaskControlRequest,
@@ -296,6 +298,82 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             error_code=None if result.ok else "MOTION_PARSE_REJECTED",
         )
         return result.model_dump()
+
+    @app.post("/api/v1/agent/motion/execute", dependencies=[Depends(authorize)])
+    async def execute_motion_request(body: MotionExecuteRequest) -> dict[str, Any]:
+        validation = validate_motion_intent(
+            body.intent.model_copy(deep=True),
+            text=body.source_text or body.intent.reason or "motion execute",
+            source="llm",
+        )
+        if not validation.ok or not validation.executable:
+            database.add_audit(
+                operator=body.operator,
+                action="MOTION_EXECUTE_REJECTED",
+                target_id=None,
+                request=body.model_dump(),
+                result="REJECTED",
+                error_code="INVALID_MOTION_INTENT",
+            )
+            raise HTTPException(status_code=422, detail=validation.model_dump())
+        if validation.requires_confirmation and not body.confirmed:
+            raise HTTPException(status_code=409, detail="motion execution requires confirmation")
+        try:
+            result = await gateway.execute_motion(validation.intent)
+        except RobotGatewayError as exc:
+            database.add_audit(
+                operator=body.operator,
+                action="MOTION_EXECUTE",
+                target_id=None,
+                request=body.model_dump(),
+                result="REJECTED",
+                error_code=str(exc.payload.get("error_code") or "MOTION_GATEWAY_REJECTED"),
+            )
+            raise HTTPException(status_code=exc.status_code, detail=exc.payload) from exc
+        except Exception as exc:
+            database.add_audit(
+                operator=body.operator,
+                action="MOTION_EXECUTE",
+                target_id=None,
+                request=body.model_dump(),
+                result="FAILED",
+                error_code="MOTION_GATEWAY_FAILED",
+            )
+            raise HTTPException(status_code=502, detail=f"motion gateway failed: {exc}") from exc
+        if result.get("accepted") is False or result.get("success") is False:
+            database.add_audit(
+                operator=body.operator,
+                action="MOTION_EXECUTE",
+                target_id=None,
+                request=body.model_dump(),
+                result="REJECTED",
+                error_code=str(result.get("error_code") or "MOTION_REJECTED"),
+            )
+            raise HTTPException(status_code=409, detail=result)
+        database.add_audit(
+            operator=body.operator,
+            action="MOTION_EXECUTE",
+            target_id=None,
+            request=body.model_dump(),
+            result=str(result.get("state") or "ACCEPTED"),
+        )
+        payload = {
+            "ok": True,
+            "intent": validation.intent.model_dump(),
+            "gateway_result": result,
+            "warnings": validation.warnings,
+        }
+        await events.broadcast("MOTION_EXECUTED", payload)
+        if validation.intent.action == "MOVE":
+            announce(
+                "已执行低速短距离运动指令。",
+                event="MOTION_EXECUTED",
+            )
+        elif validation.intent.action == "STOP":
+            announce("已发送停车指令。", event="MOTION_STOPPED")
+        elif validation.intent.action == "EMERGENCY_STOP":
+            announce("急停已开启。", event="MOTION_EMERGENCY_STOPPED", priority="high")
+        return payload
 
     @app.post("/api/v1/agent/speech/transcribe", dependencies=[Depends(authorize)])
     async def transcribe_speech(body: SpeechTranscriptionRequest) -> dict[str, Any]:

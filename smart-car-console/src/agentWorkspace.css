@@ -527,6 +527,45 @@
   justify-content: flex-end;
 }
 
+.motion-execution-result {
+  padding: 10px 12px;
+  border: 1px solid #26343e;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  display: grid;
+  gap: 6px;
+}
+
+.motion-execution-result.ok {
+  border-color: rgba(59, 210, 114, 0.28);
+}
+
+.motion-execution-result.bad {
+  border-color: rgba(240, 82, 82, 0.34);
+}
+
+.motion-execution-result span {
+  color: #82929d;
+  font-size: 11px;
+}
+
+.motion-execution-result strong {
+  color: #e8f4f8;
+  font-size: 13px;
+}
+
+.motion-execution-result code {
+  max-width: 100%;
+  padding: 9px;
+  border-radius: 6px;
+  background: #071015;
+  color: #a8e7dc;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .agent-approval-actions,
 .agent-task-actions,
 .alarm-actions {

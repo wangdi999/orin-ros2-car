@@ -45,6 +45,12 @@ export const agentApi = {
   task: (taskId) => request(`/tasks/${encodeURIComponent(taskId)}`),
   createRequest: (text) => post('/agent/requests', { text, user_id: 'web-console' }),
   parseMotion: (text) => post('/agent/motion/parse', { text, user_id: 'web-console' }),
+  executeMotion: (intent, sourceText) => post('/agent/motion/execute', {
+    intent,
+    source_text: sourceText,
+    confirmed: true,
+    operator: 'web-console'
+  }),
   transcribeSpeech: ({ audioBase64, audioFormat, language = 'zh-CN' }) => post(
     '/agent/speech/transcribe',
     {

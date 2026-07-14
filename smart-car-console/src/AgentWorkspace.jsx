@@ -31,6 +31,7 @@ export default function AgentWorkspace({ onClose, onEmergency, robotSnapshot, co
   const [requestText, setRequestText] = useState(QUICK_PROMPTS[0]);
   const [requestResult, setRequestResult] = useState(null);
   const [motionResult, setMotionResult] = useState(null);
+  const [motionExecution, setMotionExecution] = useState(null);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -166,6 +167,16 @@ export default function AgentWorkspace({ onClose, onEmergency, robotSnapshot, co
     }
     const result = await run('motion-parse', () => agentApi.parseMotion(text));
     setMotionResult(result);
+    setMotionExecution(null);
+  }
+
+  async function executeMotionCommand() {
+    if (!motionResult?.intent) return;
+    const result = await run('motion-execute', () => (
+      agentApi.executeMotion(motionResult.intent, requestText.trim())
+    ));
+    setMotionExecution(result);
+    await refreshMission();
   }
 
   async function transcribeAudio(blob, audioFormat) {
@@ -181,6 +192,7 @@ export default function AgentWorkspace({ onClose, onEmergency, robotSnapshot, co
     if (result?.text) {
       setRequestText(result.text);
       setMotionResult(null);
+      setMotionExecution(null);
     }
   }
 
@@ -364,7 +376,13 @@ export default function AgentWorkspace({ onClose, onEmergency, robotSnapshot, co
               setRequestText={setRequestText}
               submit={submitNaturalLanguage}
               parseMotion={parseMotionCommand}
+              executeMotion={executeMotionCommand}
               motionResult={motionResult}
+              motionExecution={motionExecution}
+              clearMotion={() => {
+                setMotionResult(null);
+                setMotionExecution(null);
+              }}
               recording={recording}
               startVoiceInput={startVoiceInput}
               stopVoiceInput={stopVoiceInput}
@@ -417,7 +435,10 @@ function MissionView({
   setRequestText,
   submit,
   parseMotion,
+  executeMotion,
   motionResult,
+  motionExecution,
+  clearMotion,
   recording,
   startVoiceInput,
   stopVoiceInput,
@@ -448,7 +469,7 @@ function MissionView({
           value={requestText}
           onChange={(event) => {
             setRequestText(event.target.value);
-            if (motionResult) setMotionResult(null);
+            if (motionResult) clearMotion();
           }}
           placeholder="例如：巡检东门和停车区，发现积水时暂停并通知我，最后返回起点。"
           rows={5}
@@ -476,7 +497,7 @@ function MissionView({
               type="button"
               onClick={() => {
                 setRequestText(prompt);
-                if (motionResult) setMotionResult(null);
+                if (motionResult) clearMotion();
               }}
             >
               {prompt}
@@ -489,7 +510,14 @@ function MissionView({
             {busy === 'create-request' ? '正在生成计划…' : '生成巡检计划'}
           </button>
         </div>
-        {motionResult && <MotionIntentCard result={motionResult} />}
+        {motionResult && (
+          <MotionIntentCard
+            result={motionResult}
+            execution={motionExecution}
+            busy={busy}
+            execute={executeMotion}
+          />
+        )}
       </section>
 
       <div className="agent-mission-grid">
@@ -590,8 +618,10 @@ function MissionView({
   );
 }
 
-function MotionIntentCard({ result }) {
+function MotionIntentCard({ result, execution, busy, execute }) {
   const intent = result.intent ?? {};
+  const canExecute = result.ok && result.executable;
+  const executeLabel = intent.action === 'MOVE' ? '确认执行' : '发送指令';
   const rows = [
     ['动作', motionActionLabel(intent.action)],
     ['方向', motionDirectionLabel(intent.direction)],
@@ -625,8 +655,22 @@ function MotionIntentCard({ result }) {
           {result.warnings.map((item) => <span key={item}>{item}</span>)}
         </div>
       )}
+      {execution && (
+        <div className={`motion-execution-result ${execution.ok ? 'ok' : 'bad'}`}>
+          <span>执行结果</span>
+          <strong>{motionExecutionLabel(execution.gateway_result)}</strong>
+          <code>{formatMotionExecution(execution.gateway_result)}</code>
+        </div>
+      )}
       <div className="motion-intent-actions">
-        <button type="button" disabled>确认执行尚未接入</button>
+        <button
+          className="agent-primary"
+          type="button"
+          onClick={execute}
+          disabled={!canExecute || Boolean(busy)}
+        >
+          {busy === 'motion-execute' ? '正在执行' : executeLabel}
+        </button>
       </div>
     </section>
   );
@@ -838,6 +882,33 @@ function formatSpeed(value) {
 function formatSeconds(value) {
   const number = Number(value);
   return Number.isFinite(number) ? `${number.toFixed(1)} s` : '无';
+}
+
+function motionExecutionLabel(result) {
+  if (!result) return '无返回';
+  if (result.state) return result.state;
+  if (result.success === true) return 'SUCCESS';
+  if (result.accepted === true) return 'ACCEPTED';
+  return 'UNKNOWN';
+}
+
+function formatMotionExecution(result) {
+  if (!result) return '';
+  const compact = {
+    accepted: result.accepted,
+    success: result.success,
+    state: result.state,
+    command_id: result.command_id,
+    duration_sec: result.duration_sec,
+    error_code: result.error_code,
+    error_message: result.error_message,
+    mock: result.mock
+  };
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(compact).filter(([, value]) => value !== undefined)),
+    null,
+    2
+  );
 }
 
 function preferredRecordingMimeType() {

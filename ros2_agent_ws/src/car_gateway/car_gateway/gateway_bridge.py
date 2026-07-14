@@ -12,12 +12,14 @@ from typing import Any
 import rclpy
 from car_interfaces.msg import PatrolStatus
 from car_interfaces.srv import ControlPatrol, CreatePatrol
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import Bool
+
+from .motion import MotionCommand, MotionValidationError, normalize_motion_payload
 
 
 def utc_now() -> str:
@@ -43,6 +45,10 @@ class GatewayBridgeNode(Node):
         self._chassis_connected_at = 0.0
         self._pose: tuple[float, float, float] | None = None
         self._pose_at = 0.0
+        self._motion_lock = threading.Lock()
+        self._motion_stop_event: threading.Event | None = None
+        self._motion_thread: threading.Thread | None = None
+        self._motion_command_id = 0
 
         self._create_client = self.create_client(CreatePatrol, "/patrol/create")
         self._control_client = self.create_client(ControlPatrol, "/patrol/control")
@@ -52,6 +58,7 @@ class GatewayBridgeNode(Node):
             str(self.get_parameter("nav_action_name").value),
         )
         self._estop_pub = self.create_publisher(Bool, "/safety/emergency_stop", 10)
+        self._teleop_pub = self.create_publisher(Twist, "/cmd_vel_teleop", 10)
         self.create_subscription(PatrolStatus, "/patrol/status", self._on_patrol_status, 20)
         self.create_subscription(Bool, "/safety/emergency_stop", self._on_emergency_stop, 20)
         self.create_subscription(Bool, "/chassis/connected", self._on_chassis_connected, 20)
@@ -144,12 +151,109 @@ class GatewayBridgeNode(Node):
 
     def set_emergency_stop(self, active: bool, reason: str = "") -> dict[str, Any]:
         del reason
+        if active:
+            self._stop_motion()
         message = Bool()
         message.data = bool(active)
         self._estop_pub.publish(message)
         with self._lock:
             self._emergency_stopped = bool(active)
         return {"success": True, "active": bool(active)}
+
+    def execute_motion(self, payload: dict[str, Any]) -> dict[str, Any]:
+        command = normalize_motion_payload(payload)
+        if command.action == "EMERGENCY_STOP":
+            result = self.set_emergency_stop(True, command.reason or "motion emergency stop")
+            return {"accepted": True, "state": "EMERGENCY_STOPPED", **result}
+        if command.action == "STOP":
+            self._stop_motion()
+            return {"accepted": True, "state": "STOPPED"}
+
+        summary = self.get_summary()
+        if summary.get("emergency_stopped"):
+            raise GatewayError(
+                409,
+                {
+                    "error_code": "ROBOT_ESTOPPED",
+                    "error_message": "emergency stop is active",
+                },
+            )
+        if not summary.get("chassis_online"):
+            raise GatewayError(
+                409,
+                {
+                    "error_code": "CHASSIS_OFFLINE",
+                    "error_message": "chassis bridge is not online",
+                },
+            )
+
+        command_id = self._start_motion(command)
+        return {
+            "accepted": True,
+            "state": "RUNNING",
+            "command_id": command_id,
+            "duration_sec": command.duration_sec,
+            "twist": {
+                "linear": {"x": command.linear_x, "y": command.linear_y, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": command.angular_z},
+            },
+        }
+
+    def _start_motion(self, command: MotionCommand) -> int:
+        with self._motion_lock:
+            if self._motion_thread is not None and self._motion_thread.is_alive():
+                raise GatewayError(
+                    409,
+                    {
+                        "error_code": "MOTION_ALREADY_RUNNING",
+                        "error_message": "a motion command is already running",
+                    },
+                )
+            self._motion_command_id += 1
+            command_id = self._motion_command_id
+            stop_event = threading.Event()
+            thread = threading.Thread(
+                target=self._run_motion,
+                args=(command_id, command, stop_event),
+                daemon=True,
+            )
+            self._motion_stop_event = stop_event
+            self._motion_thread = thread
+            thread.start()
+            return command_id
+
+    def _stop_motion(self) -> None:
+        with self._motion_lock:
+            if self._motion_stop_event is not None:
+                self._motion_stop_event.set()
+            self._publish_zero_burst()
+
+    def _run_motion(
+        self,
+        command_id: int,
+        command: MotionCommand,
+        stop_event: threading.Event,
+    ) -> None:
+        twist = Twist()
+        twist.linear.x = command.linear_x
+        twist.linear.y = command.linear_y
+        twist.angular.z = command.angular_z
+        deadline = time.monotonic() + command.duration_sec
+        try:
+            while rclpy.ok() and not stop_event.is_set() and time.monotonic() < deadline:
+                self._teleop_pub.publish(twist)
+                time.sleep(0.05)
+        finally:
+            self._publish_zero_burst()
+            with self._motion_lock:
+                if command_id == self._motion_command_id:
+                    self._motion_stop_event = None
+                    self._motion_thread = None
+
+    def _publish_zero_burst(self) -> None:
+        zero = Twist()
+        for _ in range(3):
+            self._teleop_pub.publish(zero)
 
     def _call_service(self, client, request, unavailable_code: str):
         if not client.wait_for_service(timeout_sec=self._service_timeout_sec):
@@ -250,9 +354,20 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                     ),
                 )
                 return
+            if self.path == "/api/v1/motion/execute":
+                self._send_json(200, self._node().execute_motion(self._json_body()))
+                return
             self._send_json(404, {"error_code": "NOT_FOUND"})
         except GatewayError as exc:
             self._send_json(exc.status_code, exc.payload)
+        except MotionValidationError as exc:
+            self._send_json(
+                422,
+                {
+                    "error_code": exc.code,
+                    "error_message": exc.message,
+                },
+            )
         except ValueError as exc:
             self._send_json(400, {"error_code": "BAD_REQUEST", "error_message": str(exc)})
 

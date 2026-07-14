@@ -1,6 +1,7 @@
 import pytest
 
 from car_agent.clients.ros_gateway import HttpRobotGateway, InMemoryRobotGateway
+from car_agent.models.motion import MotionIntent
 from car_agent.models.plan import PatrolPlan
 
 
@@ -70,6 +71,15 @@ async def test_http_gateway_maps_patrol_requests(monkeypatch: pytest.MonkeyPatch
                 return FakeResponse({"accepted": True})
             if url.endswith("/patrol/control"):
                 return FakeResponse({"success": True, "state": "RUNNING"})
+            if url.endswith("/motion/execute"):
+                return FakeResponse(
+                    {
+                        "accepted": True,
+                        "state": "RUNNING",
+                        "mock": True,
+                        "intent": json["intent"] if json else {},
+                    }
+                )
             return FakeResponse({"success": True, "active": True})
 
     monkeypatch.setattr("car_agent.clients.ros_gateway.httpx.AsyncClient", FakeClient)
@@ -93,6 +103,21 @@ async def test_http_gateway_maps_patrol_requests(monkeypatch: pytest.MonkeyPatch
         "state": "RUNNING",
     }
     assert await gateway.set_emergency_stop(True, "test") == {"success": True, "active": True}
+    assert await gateway.execute_motion(
+        MotionIntent(action="MOVE", direction="FORWARD", distance_m=0.1, max_speed_mps=0.05)
+    ) == {
+        "accepted": True,
+        "state": "RUNNING",
+        "mock": True,
+        "intent": {
+            "action": "MOVE",
+            "direction": "FORWARD",
+            "distance_m": 0.1,
+            "max_speed_mps": 0.05,
+            "duration_sec": None,
+            "reason": "",
+        },
+    }
 
     assert requests == [
         {
@@ -129,6 +154,21 @@ async def test_http_gateway_maps_patrol_requests(monkeypatch: pytest.MonkeyPatch
             "json": {
                 "active": True,
                 "reason": "test",
+            },
+            "timeout": 1.5,
+        },
+        {
+            "method": "POST",
+            "url": "http://127.0.0.1:8130/api/v1/motion/execute",
+            "json": {
+                "intent": {
+                    "action": "MOVE",
+                    "direction": "FORWARD",
+                    "distance_m": 0.1,
+                    "max_speed_mps": 0.05,
+                    "duration_sec": None,
+                    "reason": "",
+                },
             },
             "timeout": 1.5,
         },

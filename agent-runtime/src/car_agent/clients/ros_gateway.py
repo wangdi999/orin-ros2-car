@@ -6,7 +6,17 @@ from typing import Protocol
 
 import httpx
 
+from car_agent.models.motion import MotionIntent
 from car_agent.models.plan import PatrolPlan, RobotSummary
+
+
+class RobotGatewayError(RuntimeError):
+    def __init__(self, status_code: int, payload: dict) -> None:
+        error_code = payload.get("error_code", "ROS_GATEWAY_ERROR")
+        error_message = payload.get("error_message", str(payload))
+        super().__init__(f"{error_code}: {error_message}")
+        self.status_code = status_code
+        self.payload = payload
 
 
 class RobotGateway(Protocol):
@@ -17,6 +27,8 @@ class RobotGateway(Protocol):
     async def control_patrol(self, task_id: str, operation: str, reason: str = "") -> dict: ...
 
     async def set_emergency_stop(self, active: bool, reason: str = "") -> dict: ...
+
+    async def execute_motion(self, intent: MotionIntent) -> dict: ...
 
 
 class HttpRobotGateway:
@@ -55,6 +67,13 @@ class HttpRobotGateway:
             json={"active": active, "reason": reason},
         )
 
+    async def execute_motion(self, intent: MotionIntent) -> dict:
+        return await self._request(
+            "POST",
+            "/api/v1/motion/execute",
+            json={"intent": intent.model_dump()},
+        )
+
     async def _request(
         self,
         method: str,
@@ -72,9 +91,7 @@ class HttpRobotGateway:
                 "error_message": response.text,
             }
         if response.is_error:
-            error_code = payload.get("error_code", "ROS_GATEWAY_ERROR")
-            error_message = payload.get("error_message", response.text)
-            raise RuntimeError(f"{error_code}: {error_message}")
+            raise RobotGatewayError(response.status_code, payload)
         if not isinstance(payload, dict):
             raise RuntimeError("ROS gateway response must be a JSON object")
         return payload
@@ -140,3 +157,17 @@ class InMemoryRobotGateway:
         if active and self.summary.active_task_state == "RUNNING":
             self.summary.active_task_state = "PAUSED"
         return {"success": True, "active": active, "reason": reason}
+
+    async def execute_motion(self, intent: MotionIntent) -> dict:
+        if intent.action == "EMERGENCY_STOP":
+            return await self.set_emergency_stop(True, intent.reason or "motion emergency stop")
+        if intent.action == "STOP":
+            return {"accepted": True, "state": "STOPPED", "mock": True}
+        if self.summary.emergency_stopped:
+            return {"accepted": False, "error_code": "ROBOT_ESTOPPED", "mock": True}
+        return {
+            "accepted": True,
+            "state": "RUNNING",
+            "mock": True,
+            "intent": intent.model_dump(),
+        }
