@@ -13,6 +13,8 @@ import rclpy
 from car_interfaces.msg import PatrolStatus
 from car_interfaces.srv import ControlPatrol, CreatePatrol
 from geometry_msgs.msg import PoseWithCovarianceStamped
+from nav2_msgs.action import NavigateToPose
+from rclpy.action import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import Bool
@@ -42,6 +44,11 @@ class GatewayBridgeNode(Node):
 
         self._create_client = self.create_client(CreatePatrol, "/patrol/create")
         self._control_client = self.create_client(ControlPatrol, "/patrol/control")
+        self._nav_client = ActionClient(
+            self,
+            NavigateToPose,
+            str(self.get_parameter("nav_action_name").value),
+        )
         self._estop_pub = self.create_publisher(Bool, "/safety/emergency_stop", 10)
         self.create_subscription(PatrolStatus, "/patrol/status", self._on_patrol_status, 20)
         self.create_subscription(Bool, "/safety/emergency_stop", self._on_emergency_stop, 20)
@@ -77,9 +84,7 @@ class GatewayBridgeNode(Node):
             "lidar_online": self._topic_has_publishers("/scan"),
             "camera_online": self._topic_has_publishers("/image_raw")
             or self._topic_has_publishers("/camera/image_raw"),
-            "nav2_ready": self._action_server_present(
-                str(self.get_parameter("nav_action_name").value)
-            ),
+            "nav2_ready": self._nav_client.server_is_ready(),
             "yolo_online": self._topic_has_publishers("/alarm_events"),
             "emergency_stopped": emergency_stopped,
             "active_task_id": active_task_id,
@@ -198,16 +203,6 @@ class GatewayBridgeNode(Node):
             or self._topic_has_publishers("/odom")
             or self._topic_has_publishers("/odom_raw")
         )
-
-    def _action_server_present(self, action_name: str) -> bool:
-        prefix = "/" + action_name.strip("/")
-        services = {name for name, _ in self.get_service_names_and_types()}
-        required = {
-            f"{prefix}/_action/send_goal",
-            f"{prefix}/_action/get_result",
-            f"{prefix}/_action/cancel_goal",
-        }
-        return required.issubset(services)
 
 
 class GatewayError(Exception):
