@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     llm_api_key: str = Field(default="", alias="LLM_API_KEY")
     llm_timeout_sec: float = Field(default=15.0, alias="LLM_TIMEOUT_SEC")
 
+    tts_enabled: bool = Field(default=False, alias="TTS_ENABLED")
+    tts_bridge_url: str = Field(default="http://127.0.0.1:8123/speak", alias="TTS_BRIDGE_URL")
+    tts_timeout_sec: float = Field(default=2.0, alias="TTS_TIMEOUT_SEC")
+
     cors_origins: str = Field(default="http://127.0.0.1:5173", alias="CAR_AGENT_CORS_ORIGINS")
 
     @property

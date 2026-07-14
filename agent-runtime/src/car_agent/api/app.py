@@ -14,6 +14,7 @@ from langgraph.types import Command
 from car_agent.api.events import EventHub
 from car_agent.clients.llm_client import MockPlanProvider, OpenAICompatiblePlanProvider
 from car_agent.clients.ros_gateway import InMemoryRobotGateway
+from car_agent.clients.tts_client import TtsNotifier
 from car_agent.config import Settings, get_settings
 from car_agent.features.alarm_reports import register_alarm_report_routes
 from car_agent.graph.builder import GraphServices, build_patrol_graph
@@ -61,6 +62,17 @@ def _graph_response(thread_id: str, result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _robot_event_announcement(event_type: str) -> str | None:
+    announcements = {
+        "TASK_SUCCEEDED": "巡检任务已完成。",
+        "TASK_FAILED": "巡检任务失败，请查看控制台。",
+        "TASK_CANCELLED": "巡检任务已取消。",
+        "TASK_PAUSED": "巡检任务已暂停。",
+        "TASK_RESUMED": "巡检任务已继续。",
+    }
+    return announcements.get(event_type)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     database = Database(settings.database_path)
@@ -97,6 +109,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         checkpointer,
     )
     events = EventHub()
+    tts_notifier = TtsNotifier(
+        enabled=settings.tts_enabled,
+        bridge_url=settings.tts_bridge_url,
+        timeout_sec=settings.tts_timeout_sec,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -124,6 +141,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.gateway = gateway
     app.state.graph = graph
     app.state.events = events
+    app.state.tts_notifier = tts_notifier
+
+    def announce(
+        text: str,
+        *,
+        event: str,
+        priority: str = "normal",
+        task_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> None:
+        notifier = getattr(app.state, "tts_notifier", None)
+        if notifier is None:
+            return
+        notifier.notify(
+            text,
+            event=event,
+            priority=priority,
+            task_id=task_id,
+            thread_id=thread_id,
+        )
 
     def active_graph():
         graph = app.state.graph
@@ -142,6 +179,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "ok": True,
             "gateway_mode": settings.gateway_mode,
             "llm_provider": settings.llm_provider,
+            "tts_enabled": settings.tts_enabled,
         }
 
     @app.get("/api/v1/locations", dependencies=[Depends(authorize)])
@@ -155,6 +193,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/v1/agent/requests", dependencies=[Depends(authorize)])
     async def create_agent_request(body: AgentRequest) -> dict[str, Any]:
         thread_id = str(uuid4())
+        announce(
+            "已收到巡检指令，正在生成计划。",
+            event="AGENT_REQUEST_RECEIVED",
+            thread_id=thread_id,
+        )
         graph_input = {
                 "thread_id": thread_id,
                 "user_id": body.user_id,
@@ -180,6 +223,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             task_id=response.get("task_id"),
             thread_id=thread_id,
         )
+        if response["status"] == "AWAITING_APPROVAL":
+            announce(
+                "巡检计划已生成，请确认。",
+                event="APPROVAL_REQUIRED",
+                task_id=response.get("task_id"),
+                thread_id=thread_id,
+            )
+        elif response.get("error_code"):
+            announce(
+                "巡检指令处理失败，请查看控制台。",
+                event="AGENT_REQUEST_FAILED",
+                priority="high",
+                task_id=response.get("task_id"),
+                thread_id=thread_id,
+            )
         return response
 
     @app.post("/api/v1/agent/threads/{thread_id}/resume", dependencies=[Depends(authorize)])
@@ -204,6 +262,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             task_id=response.get("task_id"),
             thread_id=thread_id,
         )
+        decision = body.decision.upper()
+        if decision == "APPROVE":
+            if response.get("error_code"):
+                announce(
+                    "任务启动失败，请查看控制台。",
+                    event="TASK_START_FAILED",
+                    priority="high",
+                    task_id=response.get("task_id"),
+                    thread_id=thread_id,
+                )
+            else:
+                announce(
+                    "任务已批准，开始执行巡检。",
+                    event="TASK_APPROVED",
+                    task_id=response.get("task_id"),
+                    thread_id=thread_id,
+                )
+        elif decision == "REJECT":
+            announce(
+                "任务已拒绝。",
+                event="TASK_REJECTED",
+                task_id=response.get("task_id"),
+                thread_id=thread_id,
+            )
+        elif decision == "EDIT":
+            announce(
+                "巡检计划已更新，请再次确认。",
+                event="TASK_EDITED",
+                task_id=response.get("task_id"),
+                thread_id=thread_id,
+            )
         return response
 
     @app.post("/api/v1/agent/threads/{thread_id}/events", dependencies=[Depends(authorize)])
@@ -222,6 +311,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             task_id=response.get("task_id"),
             thread_id=thread_id,
         )
+        announcement = _robot_event_announcement(str(body.get("event_type", "")))
+        if announcement:
+            announce(
+                announcement,
+                event=str(body.get("event_type", "")),
+                priority="high" if body.get("event_type") == "TASK_FAILED" else "normal",
+                task_id=response.get("task_id"),
+                thread_id=thread_id,
+            )
         return response
 
     @app.get("/api/v1/agent/threads/{thread_id}", dependencies=[Depends(authorize)])
@@ -267,6 +365,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             result=result["state"],
         )
         await events.broadcast("TASK_STATE_CHANGED", result, task_id=task_id)
+        control_announcements = {
+            "PAUSE": "任务已暂停。",
+            "RESUME": "任务已继续。",
+            "CANCEL": "任务已取消。",
+        }
+        announce(
+            control_announcements.get(operation, "任务状态已更新。"),
+            event=f"TASK_{operation}",
+            task_id=task_id,
+        )
         return result
 
     @app.post("/api/v1/tasks/{task_id}/pause", dependencies=[Depends(authorize)])
@@ -292,6 +400,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             result="SUCCESS" if result.get("success") else "FAILED",
         )
         await events.broadcast("SAFETY_STOPPED" if body.active else "SAFETY_CLEARED", result)
+        announce(
+            "急停已开启。" if body.active else "急停已解除。",
+            event="SAFETY_STOPPED" if body.active else "SAFETY_CLEARED",
+            priority="high",
+        )
         return result
 
     register_alarm_report_routes(app, settings, authorize, events, database)
