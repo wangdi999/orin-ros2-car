@@ -44,6 +44,16 @@ export const agentApi = {
   currentTask: () => request('/tasks/current'),
   task: (taskId) => request(`/tasks/${encodeURIComponent(taskId)}`),
   createRequest: (text) => post('/agent/requests', { text, user_id: 'web-console' }),
+  parseMotion: (text) => post('/agent/motion/parse', { text, user_id: 'web-console' }),
+  transcribeSpeech: ({ audioBase64, audioFormat, language = 'zh-CN' }) => post(
+    '/agent/speech/transcribe',
+    {
+      audio_base64: audioBase64,
+      audio_format: audioFormat,
+      language,
+      user_id: 'web-console'
+    }
+  ),
   resumeThread: (threadId, decision, editedPlan = null) => post(
     `/agent/threads/${encodeURIComponent(threadId)}/resume`,
     {

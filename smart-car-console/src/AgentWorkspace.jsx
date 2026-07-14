@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { agentApi, agentEventsUrl } from './agentApi.js';
 import './agentWorkspace.css';
 
@@ -30,6 +30,8 @@ export default function AgentWorkspace({ onClose, onEmergency, robotSnapshot, co
   const [currentTask, setCurrentTask] = useState(null);
   const [requestText, setRequestText] = useState(QUICK_PROMPTS[0]);
   const [requestResult, setRequestResult] = useState(null);
+  const [motionResult, setMotionResult] = useState(null);
+  const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [events, setEvents] = useState([]);
@@ -40,6 +42,9 @@ export default function AgentWorkspace({ onClose, onEmergency, robotSnapshot, co
   const [reports, setReports] = useState([]);
   const [selectedReport, setSelectedReport] = useState(null);
   const [reportContent, setReportContent] = useState('');
+  const recorderRef = useRef(null);
+  const recorderStreamRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   const agentConfigured = config?.agent?.tokenSet !== false;
   const localEmergency = robotSnapshot?.runtime?.safety?.emergencyStopActive;
@@ -127,6 +132,14 @@ export default function AgentWorkspace({ onClose, onEmergency, robotSnapshot, co
     };
   }, [refreshAlarms, refreshMission, refreshReports]);
 
+  useEffect(() => () => {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+    }
+    recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
   const approval = requestResult?.status === 'AWAITING_APPROVAL'
     ? requestResult.interrupt
     : null;
@@ -143,6 +156,85 @@ export default function AgentWorkspace({ onClose, onEmergency, robotSnapshot, co
     const result = await run('create-request', () => agentApi.createRequest(text));
     setRequestResult(result);
     await refreshMission();
+  }
+
+  async function parseMotionCommand() {
+    const text = requestText.trim();
+    if (!text) {
+      setError('请输入运动指令。');
+      return;
+    }
+    const result = await run('motion-parse', () => agentApi.parseMotion(text));
+    setMotionResult(result);
+  }
+
+  async function transcribeAudio(blob, audioFormat) {
+    if (blob.size < 256) {
+      setError('录音内容为空。');
+      return;
+    }
+    const audioBase64 = await blobToBase64(blob);
+    const result = await run('speech-transcribe', () => agentApi.transcribeSpeech({
+      audioBase64,
+      audioFormat
+    }));
+    if (result?.text) {
+      setRequestText(result.text);
+      setMotionResult(null);
+    }
+  }
+
+  async function startVoiceInput() {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setError('当前浏览器不支持录音。');
+      return;
+    }
+    setError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      recorderStreamRef.current = stream;
+      audioChunksRef.current = [];
+      const mimeType = preferredRecordingMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size > 0) audioChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        setRecording(false);
+        recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+        recorderStreamRef.current = null;
+        recorderRef.current = null;
+        const type = recorder.mimeType || mimeType || 'audio/webm';
+        const blob = new Blob(audioChunksRef.current, { type });
+        audioChunksRef.current = [];
+        transcribeAudio(blob, type).catch((cause) => {
+          setError(cause?.message || String(cause));
+        });
+      };
+      recorder.start();
+      setRecording(true);
+    } catch (cause) {
+      recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+      recorderStreamRef.current = null;
+      setRecording(false);
+      setError(cause?.message || '无法访问麦克风。');
+    }
+  }
+
+  function stopVoiceInput() {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+    }
   }
 
   async function decide(decision) {
@@ -271,6 +363,11 @@ export default function AgentWorkspace({ onClose, onEmergency, robotSnapshot, co
               requestText={requestText}
               setRequestText={setRequestText}
               submit={submitNaturalLanguage}
+              parseMotion={parseMotionCommand}
+              motionResult={motionResult}
+              recording={recording}
+              startVoiceInput={startVoiceInput}
+              stopVoiceInput={stopVoiceInput}
               busy={busy}
               plan={plan}
               approval={approval}
@@ -319,6 +416,11 @@ function MissionView({
   requestText,
   setRequestText,
   submit,
+  parseMotion,
+  motionResult,
+  recording,
+  startVoiceInput,
+  stopVoiceInput,
   busy,
   plan,
   approval,
@@ -344,13 +446,39 @@ function MissionView({
         </div>
         <textarea
           value={requestText}
-          onChange={(event) => setRequestText(event.target.value)}
+          onChange={(event) => {
+            setRequestText(event.target.value);
+            if (motionResult) setMotionResult(null);
+          }}
           placeholder="例如：巡检东门和停车区，发现积水时暂停并通知我，最后返回起点。"
           rows={5}
         />
+        <div className="agent-input-toolbar">
+          <button
+            type="button"
+            onClick={recording ? stopVoiceInput : startVoiceInput}
+            disabled={Boolean(busy) && !recording}
+          >
+            {recording ? '停止录音' : busy === 'speech-transcribe' ? '正在转写' : '语音输入'}
+          </button>
+          <button
+            type="button"
+            onClick={parseMotion}
+            disabled={Boolean(busy) || !requestText.trim()}
+          >
+            {busy === 'motion-parse' ? '正在解析' : '解析运动指令'}
+          </button>
+        </div>
         <div className="agent-quick-prompts">
           {QUICK_PROMPTS.map((prompt) => (
-            <button key={prompt} type="button" onClick={() => setRequestText(prompt)}>
+            <button
+              key={prompt}
+              type="button"
+              onClick={() => {
+                setRequestText(prompt);
+                if (motionResult) setMotionResult(null);
+              }}
+            >
               {prompt}
             </button>
           ))}
@@ -361,6 +489,7 @@ function MissionView({
             {busy === 'create-request' ? '正在生成计划…' : '生成巡检计划'}
           </button>
         </div>
+        {motionResult && <MotionIntentCard result={motionResult} />}
       </section>
 
       <div className="agent-mission-grid">
@@ -458,6 +587,48 @@ function MissionView({
         </div>
       </section>
     </div>
+  );
+}
+
+function MotionIntentCard({ result }) {
+  const intent = result.intent ?? {};
+  const rows = [
+    ['动作', motionActionLabel(intent.action)],
+    ['方向', motionDirectionLabel(intent.direction)],
+    ['距离', formatMeters(intent.distance_m)],
+    ['速度', formatSpeed(intent.max_speed_mps)],
+    ['时长', formatSeconds(intent.duration_sec)],
+    ['来源', result.source === 'llm' ? 'LLM' : '本地规则']
+  ];
+  return (
+    <section className={`motion-intent-card ${result.ok ? 'ok' : 'bad'}`}>
+      <div className="motion-intent-head">
+        <div>
+          <span>运动指令解析</span>
+          <strong>{result.ok ? '可进入确认' : '已拒绝'}</strong>
+        </div>
+        <StateBadge state={result.executable ? 'READY' : 'REJECTED'} />
+      </div>
+      <div className="motion-intent-grid">
+        {rows.map(([label, value]) => (
+          <InfoCell key={label} label={label} value={value} />
+        ))}
+      </div>
+      {intent.reason && <p className="motion-intent-reason">{intent.reason}</p>}
+      {(result.errors ?? []).length > 0 && (
+        <div className="agent-warning-list bad">
+          {result.errors.map((item) => <span key={item}>{item}</span>)}
+        </div>
+      )}
+      {(result.warnings ?? []).length > 0 && (
+        <div className="agent-warning-list">
+          {result.warnings.map((item) => <span key={item}>{item}</span>)}
+        </div>
+      )}
+      <div className="motion-intent-actions">
+        <button type="button" disabled>确认执行尚未接入</button>
+      </div>
+    </section>
   );
 }
 
@@ -632,6 +803,63 @@ function formatDate(value) {
   if (!value) return '刚刚';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function motionActionLabel(value) {
+  const labels = {
+    MOVE: '移动',
+    STOP: '停止',
+    EMERGENCY_STOP: '急停',
+    REJECT: '拒绝'
+  };
+  return labels[value] || value || '未知';
+}
+
+function motionDirectionLabel(value) {
+  const labels = {
+    FORWARD: '前进',
+    BACKWARD: '后退',
+    LEFT: '左移',
+    RIGHT: '右移'
+  };
+  return labels[value] || '无';
+}
+
+function formatMeters(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number.toFixed(2)} m` : '无';
+}
+
+function formatSpeed(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number.toFixed(2)} m/s` : '无';
+}
+
+function formatSeconds(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number.toFixed(1)} s` : '无';
+}
+
+function preferredRecordingMimeType() {
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/ogg'
+  ];
+  return candidates.find((type) => window.MediaRecorder?.isTypeSupported?.(type)) || '';
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      resolve(result.includes(',') ? result.split(',', 2)[1] : result);
+    };
+    reader.onerror = () => reject(reader.error || new Error('读取录音失败'));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function formatEventText(event) {

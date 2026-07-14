@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     tts_bridge_url: str = Field(default="http://127.0.0.1:8123/speak", alias="TTS_BRIDGE_URL")
     tts_timeout_sec: float = Field(default=2.0, alias="TTS_TIMEOUT_SEC")
 
+    asr_enabled: bool = Field(default=False, alias="ASR_ENABLED")
+    asr_base_url: str = Field(default="", alias="ASR_BASE_URL")
+    asr_model: str = Field(default="mimo-v2.5-asr", alias="ASR_MODEL")
+    asr_api_key: str = Field(default="", alias="ASR_API_KEY")
+    asr_timeout_sec: float = Field(default=30.0, alias="ASR_TIMEOUT_SEC")
+
     cors_origins: str = Field(default="http://127.0.0.1:5173", alias="CAR_AGENT_CORS_ORIGINS")
 
     @property

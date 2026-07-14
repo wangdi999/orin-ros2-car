@@ -12,7 +12,13 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 from car_agent.api.events import EventHub
+from car_agent.clients.asr_client import MimoSpeechRecognizer
 from car_agent.clients.llm_client import MockPlanProvider, OpenAICompatiblePlanProvider
+from car_agent.clients.motion_intent import (
+    HeuristicMotionIntentProvider,
+    OpenAICompatibleMotionIntentProvider,
+    parse_motion_intent_heuristic,
+)
 from car_agent.clients.ros_gateway import HttpRobotGateway, InMemoryRobotGateway
 from car_agent.clients.tts_client import TtsNotifier
 from car_agent.config import Settings, get_settings
@@ -22,6 +28,8 @@ from car_agent.models.api import (
     AgentRequest,
     ApprovalRequest,
     EmergencyStopRequest,
+    MotionParseRequest,
+    SpeechTranscriptionRequest,
     TaskControlRequest,
 )
 from car_agent.repositories.database import Database
@@ -97,8 +105,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             api_key=settings.llm_api_key,
             timeout_sec=settings.llm_timeout_sec,
         )
+        motion_intent_provider = OpenAICompatibleMotionIntentProvider(
+            base_url=settings.llm_base_url,
+            model=settings.llm_model,
+            api_key=settings.llm_api_key,
+            timeout_sec=settings.llm_timeout_sec,
+        )
     else:
         plan_provider = MockPlanProvider()
+        motion_intent_provider = HeuristicMotionIntentProvider()
 
     checkpoint_connection = sqlite3.connect(
         settings.checkpoint_path,
@@ -120,6 +135,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         bridge_url=settings.tts_bridge_url,
         timeout_sec=settings.tts_timeout_sec,
     )
+    speech_recognizer = None
+    speech_recognizer_error = ""
+    if settings.asr_enabled:
+        try:
+            speech_recognizer = MimoSpeechRecognizer(
+                base_url=settings.asr_base_url or settings.llm_base_url,
+                model=settings.asr_model,
+                api_key=settings.asr_api_key or settings.llm_api_key,
+                timeout_sec=settings.asr_timeout_sec,
+            )
+        except ValueError as exc:
+            speech_recognizer_error = str(exc)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -148,6 +175,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.graph = graph
     app.state.events = events
     app.state.tts_notifier = tts_notifier
+    app.state.motion_intent_provider = motion_intent_provider
+    app.state.speech_recognizer = speech_recognizer
+    app.state.speech_recognizer_error = speech_recognizer_error
 
     def announce(
         text: str,
@@ -186,6 +216,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "gateway_mode": settings.gateway_mode,
             "llm_provider": settings.llm_provider,
             "tts_enabled": settings.tts_enabled,
+            "asr_enabled": settings.asr_enabled,
+            "asr_configured": speech_recognizer is not None,
+            "asr_model": settings.asr_model if settings.asr_enabled else "",
         }
 
     @app.get("/api/v1/locations", dependencies=[Depends(authorize)])
@@ -245,6 +278,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 thread_id=thread_id,
             )
         return response
+
+    @app.post("/api/v1/agent/motion/parse", dependencies=[Depends(authorize)])
+    async def parse_motion_request(body: MotionParseRequest) -> dict[str, Any]:
+        provider = app.state.motion_intent_provider
+        try:
+            result = await provider.parse_motion_intent(body.text)
+        except Exception as exc:
+            result = parse_motion_intent_heuristic(body.text)
+            result.warnings.append(f"LLM 解析失败，已使用本地兜底解析：{exc}")
+        database.add_audit(
+            operator=body.user_id,
+            action="MOTION_PARSE",
+            target_id=None,
+            request=body.model_dump(),
+            result="ACCEPTED" if result.ok else "REJECTED",
+            error_code=None if result.ok else "MOTION_PARSE_REJECTED",
+        )
+        return result.model_dump()
+
+    @app.post("/api/v1/agent/speech/transcribe", dependencies=[Depends(authorize)])
+    async def transcribe_speech(body: SpeechTranscriptionRequest) -> dict[str, Any]:
+        recognizer = app.state.speech_recognizer
+        if recognizer is None:
+            detail = app.state.speech_recognizer_error or "ASR is not enabled"
+            raise HTTPException(status_code=503, detail=detail)
+        try:
+            result = await recognizer.transcribe(
+                audio_base64=body.audio_base64,
+                audio_format=body.audio_format,
+                language=body.language,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"ASR transcription failed: {exc}") from exc
+        database.add_audit(
+            operator=body.user_id,
+            action="SPEECH_TRANSCRIBE",
+            target_id=None,
+            request={
+                "audio_format": body.audio_format,
+                "language": body.language,
+                "audio_base64_chars": len(body.audio_base64),
+            },
+            result="SUCCESS" if result.ok else "EMPTY",
+        )
+        return result.model_dump()
 
     @app.post("/api/v1/agent/threads/{thread_id}/resume", dependencies=[Depends(authorize)])
     async def resume_agent_thread(thread_id: str, body: ApprovalRequest) -> dict[str, Any]:

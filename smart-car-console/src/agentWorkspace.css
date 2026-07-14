@@ -302,6 +302,17 @@
   box-shadow: 0 0 0 3px rgba(18, 201, 183, 0.1);
 }
 
+.agent-input-toolbar {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.agent-input-toolbar button {
+  min-height: 34px;
+}
+
 .agent-quick-prompts {
   margin-top: 10px;
   display: flex;
@@ -431,6 +442,89 @@
   background: rgba(226, 163, 27, 0.08);
   color: #e8c978;
   font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.agent-warning-list.bad span {
+  border-left-color: #f05252;
+  background: rgba(240, 82, 82, 0.09);
+  color: #ffb8b8;
+}
+
+.motion-intent-card {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #2d3c47;
+  border-radius: 8px;
+  background: #0b141b;
+  display: grid;
+  gap: 12px;
+}
+
+.motion-intent-card.ok {
+  border-color: rgba(59, 210, 114, 0.28);
+}
+
+.motion-intent-card.bad {
+  border-color: rgba(240, 82, 82, 0.34);
+}
+
+.motion-intent-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.motion-intent-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.motion-intent-head span {
+  color: #82929d;
+  font-size: 11px;
+}
+
+.motion-intent-head strong {
+  color: #e8f4f8;
+}
+
+.motion-intent-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.motion-intent-grid > div {
+  padding: 10px;
+  border: 1px solid #26343e;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  display: grid;
+  gap: 5px;
+}
+
+.motion-intent-grid span {
+  color: #82929d;
+  font-size: 11px;
+}
+
+.motion-intent-grid strong {
+  color: #dce8ee;
+  font-size: 12px;
+}
+
+.motion-intent-reason {
+  margin: 0;
+  color: #a7b6bf;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.motion-intent-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .agent-approval-actions,
@@ -724,6 +818,7 @@
   .agent-sidebar nav { grid-template-columns: repeat(3, 1fr); }
   .agent-side-card { display: none; }
   .agent-summary-grid { grid-template-columns: repeat(2, 1fr); }
+  .motion-intent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-view { grid-template-columns: 1fr; min-height: auto; }
   .report-list-panel { min-height: 320px; }
   .report-preview-panel { min-height: 540px; }

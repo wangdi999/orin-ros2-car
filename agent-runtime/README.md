@@ -51,6 +51,20 @@ python3 scripts/mimo_tts_bridge.py --env-file agent-runtime/.env
 
 bridge 会读取 `TTS_BASE_URL`/`TTS_API_KEY`，也可以复用 `LLM_BASE_URL`/`LLM_API_KEY`。默认模型是 `mimo-v2.5-tts`，默认音色是 `mimo_default`，默认只监听 `127.0.0.1:8123`。
 
+## 语音输入
+
+控制台可以把浏览器录音发送给 Agent Runtime，由 Runtime 调用小米 MiMo ASR 转写为文本。默认关闭：
+
+```text
+ASR_ENABLED=false
+ASR_BASE_URL=
+ASR_MODEL=mimo-v2.5-asr
+ASR_API_KEY=
+ASR_TIMEOUT_SEC=30
+```
+
+`ASR_BASE_URL`/`ASR_API_KEY` 为空时会复用 `LLM_BASE_URL`/`LLM_API_KEY`。语音输入只生成文本，不直接控制底盘；文本仍需经过运动指令解析、校验和人工确认。
+
 ## 真实 ROS 网关
 
 默认仍使用 `CAR_AGENT_GATEWAY_MODE=mock`。接入真实 ROS 控制栈时，宿主机先启动 `car_gateway`：

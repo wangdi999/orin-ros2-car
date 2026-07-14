@@ -10,6 +10,18 @@ class AgentRequest(BaseModel):
     user_id: str = Field(default="admin", min_length=1, max_length=100)
 
 
+class MotionParseRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+    user_id: str = Field(default="admin", min_length=1, max_length=100)
+
+
+class SpeechTranscriptionRequest(BaseModel):
+    audio_base64: str = Field(min_length=1)
+    audio_format: str = Field(default="webm", min_length=1, max_length=30)
+    language: str | None = Field(default="zh-CN", max_length=20)
+    user_id: str = Field(default="admin", min_length=1, max_length=100)
+
+
 class ApprovalRequest(BaseModel):
     decision: Literal["APPROVE", "REJECT", "EDIT"]
     operator: str = Field(default="admin", min_length=1, max_length=100)
