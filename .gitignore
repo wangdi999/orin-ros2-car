@@ -18,6 +18,15 @@ deploy_*.py
 smart-car-console/node_modules/
 smart-car-console/dist/
 smart-car-console/logs/
+smart-car-console/.npm-cache/
+
+# Android remote app local/build files
+android-remote-app/.gradle/
+android-remote-app/.idea/
+android-remote-app/build/
+android-remote-app/mobile/build/
+android-remote-app/local.properties
+android-remote-app/**/local.properties
 
 # Python / Agent Runtime
 __pycache__/
