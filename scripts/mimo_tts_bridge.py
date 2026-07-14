@@ -84,7 +84,7 @@ class BridgeConfig:
             or ""
         )
         self.model = os.getenv("TTS_MODEL") or os.getenv("MIMO_TTS_MODEL") or "mimo-v2.5-tts"
-        self.voice = os.getenv("TTS_VOICE", "Cherry")
+        self.voice = os.getenv("TTS_VOICE", "mimo_default")
         self.audio_format = os.getenv("TTS_AUDIO_FORMAT", "wav")
         self.timeout_sec = float(os.getenv("TTS_API_TIMEOUT_SEC", "30"))
         self.max_text_chars = int(os.getenv("TTS_MAX_TEXT_CHARS", "120"))

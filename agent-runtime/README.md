@@ -49,4 +49,4 @@ TTS_TIMEOUT_SEC=2
 python3 scripts/mimo_tts_bridge.py --env-file agent-runtime/.env
 ```
 
-bridge 会读取 `TTS_BASE_URL`/`TTS_API_KEY`，也可以复用 `LLM_BASE_URL`/`LLM_API_KEY`。默认模型是 `mimo-v2.5-tts`，默认只监听 `127.0.0.1:8123`。
+bridge 会读取 `TTS_BASE_URL`/`TTS_API_KEY`，也可以复用 `LLM_BASE_URL`/`LLM_API_KEY`。默认模型是 `mimo-v2.5-tts`，默认音色是 `mimo_default`，默认只监听 `127.0.0.1:8123`。
