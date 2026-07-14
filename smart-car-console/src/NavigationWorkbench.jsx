@@ -9,7 +9,7 @@ import {
   setRoutePoint
 } from './navigationWorkbench.js';
 
-export default function NavigationWorkbench({ config, runtime, telemetry, onRefresh, onOpenRemote }) {
+export default function NavigationWorkbench({ config, runtime, telemetry, onRefresh, mappingMap, mappingLidar, mappingTeleop }) {
   const [tab, setTab] = useState('mapping');
   const [maps, setMaps] = useState([]);
   const [selectedMap, setSelectedMap] = useState(configuredMapId(config));
@@ -43,7 +43,7 @@ export default function NavigationWorkbench({ config, runtime, telemetry, onRefr
       return payload;
     } catch (error) {
       setNotice({ tone: 'error', text: error.message });
-      throw error;
+      return null;
     } finally {
       setBusy(null);
     }
@@ -126,7 +126,7 @@ export default function NavigationWorkbench({ config, runtime, telemetry, onRefr
       waypoints: route.waypoints.map(numericRoutePoint)
     };
     const payload = await request(`/api/routes/${encodeURIComponent(selectedMap)}`, { method: 'PUT', body: JSON.stringify(configured) });
-    setRoute(payload.route);
+    if (payload?.route) setRoute(payload.route);
   }
 
   return (
@@ -162,10 +162,19 @@ export default function NavigationWorkbench({ config, runtime, telemetry, onRefr
             ['保存规则', 'PGM + YAML + PBStream']
           ]} />
           <div className="workbench-main">
-            <LiveMapSummary telemetry={telemetry} />
+            <div className="mapping-map-monitor">
+              {mappingMap}
+            </div>
+            <div className="mapping-live-grid">
+              <LiveMapSummary telemetry={telemetry} />
+              {mappingLidar}
+            </div>
+            <div className="mapping-teleop-row">
+              {mappingTeleop}
+            </div>
             <div className="workbench-actions">
               <button disabled={Boolean(busy) || config?.navigation?.mode === 'mapping'} onClick={() => switchMode('mapping')}>切换到 mapping</button>
-              <button onClick={onOpenRemote}>打开低速遥控</button>
+              <button className="danger" disabled={Boolean(busy) || config?.navigation?.mode !== 'mapping'} onClick={() => switchMode('safe_base')}>关闭建图模式</button>
               <label>地图名称<input value={mapName} onChange={(event) => setMapName(event.target.value)} /></label>
               <button className="primary-action" disabled={Boolean(busy) || config?.navigation?.mode !== 'mapping' || !telemetry?.map?.connected} onClick={() => request('/api/maps/save', { method: 'POST', body: JSON.stringify({ name: mapName }) })}>保存候选地图</button>
             </div>

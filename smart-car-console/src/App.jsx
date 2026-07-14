@@ -297,8 +297,8 @@ export default function App() {
   const [busy, setBusy] = useState(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('overview');
-  const [linearLimit, setLinearLimit] = useState(0.05);
-  const [angularLimit, setAngularLimit] = useState(0.2);
+  const [linearLimit, setLinearLimit] = useState(0.5);
+  const [angularLimit, setAngularLimit] = useState(2);
   const [driveVector, setDriveVector] = useState({ forward: 0, turn: 0, strafe: 0 });
   const [keyboardActive, setKeyboardActive] = useState(false);
   const [recordings, setRecordings] = useState([]);
@@ -323,8 +323,8 @@ export default function App() {
   const canDrive = driveReady && !safety.emergencyStopActive && motionAcknowledged;
 
   useEffect(() => {
-    setLinearLimit((value) => Math.min(value, config.control.maxLinearMps));
-    setAngularLimit((value) => Math.min(value, config.control.maxAngularRps));
+    setLinearLimit(config.control.maxLinearMps);
+    setAngularLimit(config.control.maxAngularRps);
   }, [config.control.maxAngularRps, config.control.maxLinearMps]);
 
   const refreshStatus = useCallback(async () => {
@@ -363,32 +363,39 @@ export default function App() {
 
   useEffect(() => {
     let closed = false;
+    let ws = null;
     refreshStatus().catch(() => setConnection('offline'));
     refreshPerception().catch(() => {});
     refreshRecordings().catch(() => {});
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const port = window.location.port === '5173' ? '8787' : window.location.port;
-    const ws = new WebSocket(`${protocol}//${window.location.hostname}:${port}/api/telemetry`);
-    ws.onopen = () => setConnection('connected');
-    ws.onclose = () => {
-      if (!closed) setConnection('offline');
-    };
-    ws.onerror = () => setConnection('offline');
-    ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      if (message.type === 'snapshot') setState(message.data);
-      if (message.type === 'telemetry') setState((previous) => mergeTelemetryPatch(previous, message.data));
-      if (message.type === 'runtime-patch') setState((previous) => mergeRuntimePatch(previous, message.data));
-      if (message.type === 'log') setState((previous) => appendLog(previous, message.data));
-    };
+    const openSocket = window.setTimeout(() => {
+      if (closed) return;
+      ws = new WebSocket(`${protocol}//${window.location.hostname}:${port}/api/telemetry`);
+      ws.onopen = () => setConnection('connected');
+      ws.onclose = () => {
+        if (!closed) setConnection('offline');
+      };
+      ws.onerror = () => {
+        if (!closed) setConnection('offline');
+      };
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        if (message.type === 'snapshot') setState(message.data);
+        if (message.type === 'telemetry') setState((previous) => mergeTelemetryPatch(previous, message.data));
+        if (message.type === 'runtime-patch') setState((previous) => mergeRuntimePatch(previous, message.data));
+        if (message.type === 'log') setState((previous) => appendLog(previous, message.data));
+      };
+    }, 0);
     const poll = setInterval(() => {
       refreshStatus().catch(() => setConnection('offline'));
       refreshRecordings().catch(() => {});
     }, 6000);
     return () => {
       closed = true;
+      window.clearTimeout(openSocket);
       clearInterval(poll);
-      ws.close();
+      if (ws && ws.readyState < WebSocket.CLOSING) ws.close();
     };
   }, [refreshPerception, refreshRecordings, refreshStatus]);
 
@@ -625,7 +632,6 @@ export default function App() {
 
       <main className="workbench">
         <NavigationRail activeSection={activeSection} onSelect={setActiveSection} alarmCount={alarms.summary?.active ?? 0} />
-        <ServicePanel status={status} rosbridge={state.runtime.rosbridge} telemetry={telemetry} navigation={navigation} />
         <section className="center-zone">
           {activeSection === 'overview' && (
             <>
@@ -658,14 +664,6 @@ export default function App() {
               />
             </>
           )}
-          {activeSection === 'map' && (
-            <MapMonitor
-              telemetry={telemetry}
-              navigation={navigation}
-              capabilities={capabilities}
-              topicActivity={state.runtime.topicActivity ?? {}}
-            />
-          )}
           {activeSection === 'capabilities' && (
             <CapabilityCenter capabilities={capabilities} topicActivity={state.runtime.topicActivity ?? {}} />
           )}
@@ -675,7 +673,34 @@ export default function App() {
               runtime={state.runtime}
               telemetry={telemetry}
               onRefresh={refreshStatus}
-              onOpenRemote={() => setActiveSection('remote')}
+              mappingMap={(
+                <MapMonitor
+                  telemetry={telemetry}
+                  navigation={navigation}
+                  capabilities={capabilities}
+                  topicActivity={state.runtime.topicActivity ?? {}}
+                />
+              )}
+              mappingLidar={<LidarPanel lidar={telemetry.lidar} />}
+              mappingTeleop={(
+                <Joystick
+                  compact
+                  title="建图低速摇杆"
+                  disabled={!canDrive || config?.navigation?.mode !== 'mapping'}
+                  driveReady={driveReady}
+                  emergencyStopActive={safety.emergencyStopActive}
+                  blockers={[
+                    ...(config?.navigation?.mode === 'mapping' ? [] : ['MODE_NOT_MAPPING']),
+                    ...driveBlockers
+                  ]}
+                  busy={busy}
+                  vector={driveVector}
+                  keyboardActive={keyboardActive}
+                  onVector={handleJoystickVector}
+                  onStop={stopDrive}
+                  onResume={() => postAction('/api/safety/reset', 'resume')}
+                />
+              )}
             />
           )}
           {activeSection === 'vision' && (
@@ -757,6 +782,7 @@ export default function App() {
             />
           )}
           {activeSection === 'logs' && <LogConsole logs={logs} />}
+          <ServicePanel status={status} rosbridge={state.runtime.rosbridge} telemetry={telemetry} navigation={navigation} />
         </section>
         <SensorInspector
           telemetry={telemetry}
@@ -794,7 +820,6 @@ function NavigationRail({ activeSection, onSelect, alarmCount = 0 }) {
   const items = [
     ['navigation-workbench', 'map', '建图与导航工作台'],
     ['overview', 'home', '总览'],
-    ['map', 'map', '地图与导航'],
     ['vision', 'camera', '视觉'],
     ['capabilities', 'chip', '能力中心'],
     ['remote', 'scope', '遥控'],
@@ -918,7 +943,7 @@ function ServicePanel({ status, rosbridge, telemetry, navigation }) {
   ];
 
   return (
-    <aside className="services-panel panel">
+    <aside className="services-panel services-panel-bottom panel">
       <h2>服务</h2>
       <div className="service-switches">
         {serviceRows.map(([label, ok]) => (
@@ -2405,6 +2430,7 @@ function translateBlocker(blocker) {
     'Camera device is missing': '摄像头设备缺失',
     'Camera stream is not running': '摄像头视频流未运行',
     'ROSBridge is not connected': 'ROSBridge 未连接',
+    MODE_NOT_MAPPING: '请先切换到 mapping 模式',
     'Status has not been refreshed': '状态尚未刷新',
     'Waiting for status check': '等待状态检查'
   };

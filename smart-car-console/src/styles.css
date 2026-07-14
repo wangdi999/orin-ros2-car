@@ -140,6 +140,41 @@ body {
   min-width: 0;
 }
 
+.mapping-live-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(420px, 1.2fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.mapping-map-monitor {
+  margin-bottom: 14px;
+}
+
+.mapping-map-monitor > .map-monitor {
+  min-height: 620px;
+  margin: 0;
+}
+
+.mapping-live-grid > .live-map-summary,
+.mapping-live-grid > .lidar-panel {
+  min-height: 250px;
+  margin: 0;
+}
+
+.mapping-live-grid > .lidar-panel .lidar-canvas-wrap {
+  min-height: 180px;
+}
+
+.mapping-teleop-row {
+  margin-top: 14px;
+}
+
+.mapping-teleop-row > .joystick-panel {
+  width: 100%;
+  margin: 0;
+}
+
 .interactive-map {
   width: 100%;
   max-height: 500px;
@@ -439,7 +474,7 @@ svg {
 .workbench {
   min-height: 0;
   display: grid;
-  grid-template-columns: 58px 300px minmax(0, 1fr) clamp(320px, 23vw, 380px);
+  grid-template-columns: 58px minmax(0, 1fr) clamp(320px, 23vw, 380px);
   gap: 10px;
   padding: 10px;
   overflow: hidden;
@@ -495,6 +530,20 @@ svg {
 .services-panel {
   padding: 16px;
   overflow: auto;
+}
+
+.services-panel-bottom {
+  overflow: visible;
+}
+
+.services-panel-bottom .service-switches {
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  column-gap: 24px;
+}
+
+.services-panel-bottom .module-list {
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  column-gap: 28px;
 }
 
 .services-panel h2,
@@ -1872,19 +1921,18 @@ input[type="range"] {
   }
 
   .workbench {
-    grid-template-columns: 58px 300px minmax(0, 1fr);
+    grid-template-columns: 58px minmax(0, 1fr);
     grid-template-rows: auto auto;
     overflow: visible;
   }
 
   .nav-rail,
-  .services-panel,
   .center-zone {
     grid-row: 1;
   }
 
   .inspector {
-    grid-column: 2 / -1;
+    grid-column: 2;
     grid-row: 2;
     max-height: 420px;
   }
@@ -1980,6 +2028,11 @@ input[type="range"] {
 
   .center-zone {
     grid-template-rows: auto;
+  }
+
+  .services-panel-bottom .service-switches,
+  .services-panel-bottom .module-list {
+    grid-template-columns: 1fr;
   }
 
   .pointcloud-card {
