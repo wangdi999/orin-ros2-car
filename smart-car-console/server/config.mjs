@@ -12,14 +12,15 @@ const defaults = {
     sshUser: 'jetson',
     sshPassword: 'yahboom',
     sshHostKey: 'SHA256:AJffjk3YWwStux7ZbdKdft3teC8b7Jsubuvv4zMYuD8',
-    plinkPath: 'D:\\putty\\plink.exe'
+    plinkPath: 'C:\\Program Files\\PuTTY\\plink.exe',
+    sshPrivateKey: ''
   },
   control: {
-    maxLinearMps: 0.35,
-    maxAngularRps: 1.2,
+    maxLinearMps: 0.10,
+    maxAngularRps: 0.20,
     deadZone: 0.05,
     watchdogMs: 450,
-    commandTopic: '/cmd_vel'
+    commandTopic: '/cmd_vel_manual'
   },
   agent: {
     host: '',
@@ -77,7 +78,8 @@ export function publicConfig() {
       sshUser: config.car.sshUser,
       sshPasswordSet: Boolean(config.car.sshPassword),
       sshHostKey: config.car.sshHostKey,
-      plinkPath: config.car.plinkPath
+      plinkPath: config.car.plinkPath,
+      sshPrivateKey: config.car.sshPrivateKey
     },
     control: config.control,
     agent: {

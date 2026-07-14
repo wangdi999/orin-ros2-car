@@ -4,14 +4,15 @@
     "sshUser": "jetson",
     "sshPassword": "yahboom",
     "sshHostKey": "SHA256:AJffjk3YWwStux7ZbdKdft3teC8b7Jsubuvv4zMYuD8",
-    "plinkPath": "D:\\putty\\plink.exe"
+    "plinkPath": "C:\\Program Files\\PuTTY\\plink.exe",
+    "sshPrivateKey": ""
   },
   "control": {
-    "maxLinearMps": 0.35,
-    "maxAngularRps": 1.2,
+    "maxLinearMps": 0.1,
+    "maxAngularRps": 0.2,
     "deadZone": 0.05,
     "watchdogMs": 450,
-    "commandTopic": "/cmd_vel"
+    "commandTopic": "/cmd_vel_manual"
   },
   "agent": {
     "host": "",

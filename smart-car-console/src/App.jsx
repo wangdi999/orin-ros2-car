@@ -75,14 +75,15 @@ const defaultConfig = {
     sshUser: 'jetson',
     sshPasswordSet: false,
     sshHostKey: '',
-    plinkPath: 'D:\\putty\\plink.exe'
+    plinkPath: 'C:\\Program Files\\PuTTY\\plink.exe',
+    sshPrivateKey: ''
   },
   control: {
-    maxLinearMps: 0.35,
-    maxAngularRps: 1.2,
+    maxLinearMps: 0.10,
+    maxAngularRps: 0.20,
     deadZone: 0.05,
     watchdogMs: 450,
-    commandTopic: '/cmd_vel'
+    commandTopic: '/cmd_vel_manual'
   },
   agent: {
     host: '',
@@ -99,8 +100,8 @@ export default function App() {
   const [busy, setBusy] = useState(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
-  const [linearLimit, setLinearLimit] = useState(0.18);
-  const [angularLimit, setAngularLimit] = useState(0.7);
+  const [linearLimit, setLinearLimit] = useState(0.08);
+  const [angularLimit, setAngularLimit] = useState(0.20);
   const [driveVector, setDriveVector] = useState({ forward: 0, turn: 0, strafe: 0 });
   const [keyboardActive, setKeyboardActive] = useState(false);
   const sendDriveRef = useRef({ lastSent: 0, pending: null });
@@ -856,7 +857,8 @@ function ConfigDialog({ config, onClose, onSaved }) {
     sshPassword: '',
     sshHostKey: config.car.sshHostKey,
     plinkPath: config.car.plinkPath,
-    commandTopic: config.control.commandTopic || '/cmd_vel',
+    sshPrivateKey: config.car.sshPrivateKey || '',
+    commandTopic: config.control.commandTopic || '/cmd_vel_manual',
     agentHost: config.agent?.host || '',
     agentPort: config.agent?.port || 8100,
     agentToken: ''
@@ -876,7 +878,8 @@ function ConfigDialog({ config, onClose, onSaved }) {
             sshUser: form.sshUser,
             sshPassword: form.sshPassword,
             sshHostKey: form.sshHostKey,
-            plinkPath: form.plinkPath
+            plinkPath: form.plinkPath,
+            sshPrivateKey: form.sshPrivateKey
           },
           control: {
             commandTopic: form.commandTopic
@@ -921,8 +924,13 @@ function ConfigDialog({ config, onClose, onSaved }) {
           <input value={form.plinkPath} onChange={(event) => setForm({ ...form, plinkPath: event.target.value })} />
         </label>
         <label>
+          <span>SSH 私钥</span>
+          <input value={form.sshPrivateKey} onChange={(event) => setForm({ ...form, sshPrivateKey: event.target.value })} />
+        </label>
+        <label>
           <span>速度命令 Topic</span>
           <select value={form.commandTopic} onChange={(event) => setForm({ ...form, commandTopic: event.target.value })}>
+            <option value="/cmd_vel_manual">/cmd_vel_manual（安全仲裁）</option>
             <option value="/cmd_vel">/cmd_vel（旧遥控链路）</option>
             <option value="/cmd_vel_teleop">/cmd_vel_teleop（Safety Supervisor）</option>
           </select>

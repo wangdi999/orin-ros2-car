@@ -167,7 +167,7 @@ export function updateRosbridge(partial) {
 export function recomputeCanDrive() {
   const blockers = [];
   const { devices, services } = runtime.status;
-  const rosbridgeConnected = runtime.rosbridge.connected || runtime.status.ports.rosbridge9090;
+  const rosbridgeConnected = runtime.rosbridge.connected;
   const cameraDeviceAvailable = devices.video0 || (devices.cameraDepth && devices.cameraUvc);
   const cameraStreamAvailable = runtime.status.ports.video6500 || services.video || services.camera;
 
