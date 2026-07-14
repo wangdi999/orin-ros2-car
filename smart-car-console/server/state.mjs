@@ -246,6 +246,16 @@ export const runtime = {
       activeGoals: 0,
       updatedAt: null
     },
+    goal: {
+      state: 'UNKNOWN',
+      mode: null,
+      waypoint: null,
+      index: null,
+      attempt: null,
+      routeConfigured: false,
+      reason: null,
+      goalId: null
+    },
     lastService: null,
     updatedAt: null
   },
@@ -378,6 +388,76 @@ export function updateTelemetry(partial) {
     updated[key] = telemetry[key];
   }
   bus.emit('telemetry', updated);
+}
+
+export function clearPerceptionTelemetry() {
+  updateTelemetry({
+    camera: {
+      connected: false,
+      topic: null,
+      type: null,
+      previewType: null,
+      dataUrl: null,
+      width: null,
+      height: null,
+      encoding: null,
+      pixels: []
+    },
+    depth: {
+      connected: false,
+      topic: null,
+      type: null,
+      previewType: null,
+      width: null,
+      height: null,
+      encoding: null,
+      min: null,
+      max: null,
+      values: []
+    },
+    ir: {
+      connected: false,
+      topic: null,
+      type: null,
+      previewType: null,
+      width: null,
+      height: null,
+      encoding: null,
+      min: null,
+      max: null,
+      values: []
+    },
+    pointCloud: {
+      connected: false,
+      topic: null,
+      type: null,
+      frameId: null,
+      width: null,
+      height: null,
+      totalPoints: 0,
+      sampledPoints: 0,
+      bounds: null,
+      points: []
+    },
+    tracking: {
+      connected: false,
+      imageTopic: null,
+      velocityTopic: '/tracking_cmd_vel_shadow',
+      image: null,
+      shadowTwist: null
+    },
+    detections: {
+      connected: false,
+      topic: null,
+      type: null,
+      frameId: null,
+      sourceWidth: 640,
+      sourceHeight: 480,
+      count: 0,
+      detections: [],
+      lastError: null
+    }
+  });
 }
 
 export function updateRosbridge(partial) {

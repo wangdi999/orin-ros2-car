@@ -202,6 +202,25 @@
 
 ---
 
+## Phase 10: Full Web Mapping and Navigation Workbench
+
+**Purpose**: 在保持 `/cmd_vel` 单一安全边界的前提下，把主线建图、地图管理、定位、单点导航和三点巡航完整接入本地网页。
+
+- [X] T091 [P] 为网页导航协议、地图/路线校验、模式切换和首次运动提示添加 Node/Python 单元测试
+- [X] T092 在 `car_interfaces` 增加 `NavigatePose.srv` 并更新 Foxy 接口依赖
+- [X] T093 扩展巡航管理器，统一拥有单点目标、巡航和返航 action，并发布 `/navigation/status`
+- [X] T094 为路线热重载和统一导航状态补充 ROS 服务、topic、launch 与注册表接入
+- [X] T095 实现控制台地图/路线管理器、托管目录、完整性校验、逻辑归档、恢复、预览和下载
+- [X] T096 实现串行导航工作流、零优先模式切换、初始位姿、单点目标和首次运动提示后端门禁
+- [X] T097 暴露计划中的本地 HTTP API，并保持输入白名单、回环访问和统一错误结构
+- [X] T098 实现“建图、地图、定位、单点导航、路线巡航”分步工作台和交互地图工具
+- [X] T099 扩展开发手册和接口契约，记录网页工作流、存储路径、安全门禁与未覆盖的厂家能力
+- [X] T100 运行完整 Node/Python 回归和控制台生产构建，修复所有非物理失败
+- [ ] T101 在 Foxy 环境执行四包 build/test 与只读接口检查，不发送目标或非零 Twist
+- [X] T102 汇总软件/非运动验收；实车建图、目标、巡航和返航继续保持运动门禁未通过
+
+---
+
 ## Dependencies and Execution Order
 
 ### Phase Dependencies

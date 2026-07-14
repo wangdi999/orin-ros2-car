@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   bus,
+  clearPerceptionTelemetry,
   configureHeartbeat,
   runtime,
   snapshot,
@@ -83,4 +84,27 @@ test('high-rate telemetry emits an incremental patch instead of a full snapshot'
   bus.off('snapshot', onSnapshot);
   assert.equal(telemetryEvents, 1);
   assert.equal(snapshotEvents, 0);
+});
+
+test('disabling perception preview releases image, point-cloud, tracking and detection payloads', () => {
+  updateTelemetry({
+    camera: { connected: true, dataUrl: 'data:image/jpeg;base64,large', pixels: [[1, 2, 3]] },
+    depth: { connected: true, values: [1, 2] },
+    ir: { connected: true, values: [3, 4] },
+    pointCloud: { connected: true, points: [{ x: 1, y: 2, z: 3 }] },
+    tracking: { connected: true, image: { dataUrl: 'data:image/jpeg;base64,large' }, shadowTwist: { linear: { x: 1 } } },
+    detections: { connected: true, detections: [{ label: 'target' }], count: 1 }
+  });
+
+  clearPerceptionTelemetry();
+  assert.equal(telemetry.camera.connected, false);
+  assert.equal(telemetry.camera.dataUrl, null);
+  assert.deepEqual(telemetry.camera.pixels, []);
+  assert.deepEqual(telemetry.depth.values, []);
+  assert.deepEqual(telemetry.ir.values, []);
+  assert.deepEqual(telemetry.pointCloud.points, []);
+  assert.equal(telemetry.tracking.image, null);
+  assert.equal(telemetry.tracking.shadowTwist, null);
+  assert.deepEqual(telemetry.detections.detections, []);
+  assert.equal(telemetry.detections.count, 0);
 });

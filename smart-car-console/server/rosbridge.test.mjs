@@ -7,6 +7,7 @@ import {
   ROS2_TWIST_TYPE,
   TRIGGER_SERVICE_TYPE
 } from './rosbridge.mjs';
+import { INITIAL_POSE_TOPIC, NAVIGATE_POSE_SERVICE } from './navigationProtocol.mjs';
 import { telemetry } from './state.mjs';
 
 test('manual drive publishes only to the arbiter input topic', () => {
@@ -50,6 +51,50 @@ test('manual command input is explicitly advertised before publishing', () => {
     type: ROS2_TWIST_TYPE,
     queue_size: 1
   }]);
+});
+
+test('perception streams subscribe only while preview is enabled and use the preview limits', () => {
+  const sent = [];
+  const client = new RosbridgeClient(() => ({ car: { host: '192.168.43.137' } }));
+  client.connected = true;
+  client.ws = { readyState: 1, send: (message) => sent.push(JSON.parse(message)) };
+  client.setPerceptionSubscriptions({
+    color: { role: 'camera', topic: '/camera/color/image_raw', type: 'sensor_msgs/msg/Image' },
+    cloud: { role: 'pointCloud', topic: '/camera/depth/points', type: 'sensor_msgs/msg/PointCloud2' }
+  });
+  assert.equal(sent.length, 0);
+
+  client.setPerceptionPreviewEnabled(true);
+  const subscriptions = sent.filter((item) => item.op === 'subscribe');
+  assert.deepEqual(subscriptions.map((item) => [item.topic, item.throttle_rate, item.queue_length]), [
+    ['/camera/color/image_raw', 200, 1],
+    ['/camera/depth/points', 500, 1]
+  ]);
+
+  client.setPerceptionPreviewEnabled(false);
+  assert.deepEqual(sent.filter((item) => item.op === 'unsubscribe').map((item) => item.topic), [
+    '/camera/color/image_raw', '/camera/depth/points'
+  ]);
+});
+
+test('perception topic discovery removes obsolete subscriptions while preview is enabled', () => {
+  const sent = [];
+  const client = new RosbridgeClient(() => ({ car: { host: '192.168.43.137' } }));
+  client.connected = true;
+  client.ws = { readyState: 1, send: (message) => sent.push(JSON.parse(message)) };
+  client.setPerceptionPreviewEnabled(true);
+  client.setPerceptionSubscriptions({
+    old: { role: 'camera', topic: '/old/image', type: 'sensor_msgs/msg/Image' }
+  });
+  client.setPerceptionSubscriptions({
+    next: { role: 'camera', topic: '/next/image', type: 'sensor_msgs/msg/Image' }
+  });
+
+  assert.deepEqual(sent.map((item) => [item.op, item.topic]), [
+    ['subscribe', '/old/image'],
+    ['unsubscribe', '/old/image'],
+    ['subscribe', '/next/image']
+  ]);
 });
 
 test('emergency stop latches safety and sends a manual zero without publishing /cmd_vel', () => {
@@ -151,6 +196,34 @@ test('simulated low battery is an explicit Trigger service request', async () =>
   const response = await responsePromise;
   assert.equal(response.success, false);
   assert.match(response.message, /Home route/);
+});
+
+test('initial pose publishes only the standard map-frame localization topic', () => {
+  const sent = [];
+  const client = new RosbridgeClient(() => ({ car: { host: '192.168.43.137' } }));
+  client.ws = { readyState: 1, send: (message) => sent.push(JSON.parse(message)) };
+  assert.equal(client.publishInitialPose({ x: 1, y: 2, yaw: 0.5 }), true);
+  assert.equal(sent[0].topic, INITIAL_POSE_TOPIC);
+  assert.equal(sent[0].msg.header.frame_id, 'map');
+  assert.equal(sent[0].msg.pose.covariance[35], 0.0685);
+});
+
+test('single navigation goal uses the typed coordinator service', async () => {
+  const sent = [];
+  const client = new RosbridgeClient(() => ({ car: { host: '192.168.43.137' } }));
+  client.connected = true;
+  client.ws = { readyState: 1, send: (message) => sent.push(JSON.parse(message)) };
+  const pending = client.sendNavigationGoal({ x: 1, y: 2, yaw: 0.5 });
+  const request = sent.at(-1);
+  assert.equal(request.service, NAVIGATE_POSE_SERVICE);
+  assert.deepEqual(request.args, { x: 1, y: 2, yaw: 0.5 });
+  client.handleMessage(JSON.stringify({
+    op: 'service_response', id: request.id, result: true,
+    values: { accepted: true, goal_id: 'web-1', message: 'single goal accepted' }
+  }));
+  const response = await pending;
+  assert.equal(response.success, true);
+  assert.equal(response.values.goal_id, 'web-1');
 });
 
 test('pose resolution keeps the last trusted map pose when fresh sources disappear', () => {

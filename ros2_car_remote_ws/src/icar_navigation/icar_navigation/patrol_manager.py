@@ -10,6 +10,7 @@ from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import Path
 import rclpy
+from car_interfaces.srv import NavigatePose
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -24,12 +25,14 @@ from .patrol_policy import (
     NAVIGATING,
     NEXT_GOAL,
     RETURN_HOME,
+    SINGLE_GOAL,
     WAITING,
     PatrolPolicy,
 )
 from .ros_alarm import RosAlarmPublisher
 from .route_loader import (
     RouteValidationError,
+    Waypoint,
     load_route,
     require_executable_route,
     route_path_points,
@@ -78,6 +81,8 @@ class PatrolManager(Node):
         self.alarms = RosAlarmPublisher(self)
         self.status_publisher = self.create_publisher(
             String, '/patrol/status', 10)
+        self.navigation_status_publisher = self.create_publisher(
+            String, '/navigation/status', 10)
         route_qos = QoSProfile(depth=1)
         route_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         route_qos.reliability = ReliabilityPolicy.RELIABLE
@@ -92,6 +97,12 @@ class PatrolManager(Node):
         self.create_service(Trigger, '/patrol/cancel', self._cancel_callback)
         self.create_service(
             Trigger, '/patrol/return_home', self._return_home_callback)
+        self.create_service(
+            Trigger, '/patrol/reload_route', self._reload_route_callback)
+        self.create_service(
+            NavigatePose, '/navigation/send_goal', self._single_goal_callback)
+        self.create_service(
+            Trigger, '/navigation/cancel', self._cancel_callback)
 
         self._safety_state = None
         self._safety_received_at = None
@@ -106,6 +117,7 @@ class PatrolManager(Node):
         self._cancel_for_timeout = False
         self._low_battery_handled = False
         self._last_status_publish_at = -math.inf
+        self._web_goal_sequence = 0
 
         self.create_timer(0.05, self._tick)
         self._publish_route()
@@ -158,6 +170,69 @@ class PatrolManager(Node):
         response.success = True
         response.message = 'return-home accepted'
         return response
+
+    def _single_goal_callback(self, request, response):
+        ok, reason = self._single_goal_preconditions()
+        if not ok:
+            response.accepted = False
+            response.goal_id = ''
+            response.message = reason
+            return response
+        values = (request.x, request.y, request.yaw)
+        if not all(math.isfinite(value) for value in values):
+            response.accepted = False
+            response.goal_id = ''
+            response.message = 'goal coordinates must be finite'
+            return response
+        if not -math.pi <= request.yaw <= math.pi:
+            response.accepted = False
+            response.goal_id = ''
+            response.message = 'goal yaw must be within [-pi, pi]'
+            return response
+        self._web_goal_sequence += 1
+        goal_id = 'web-{}-{}'.format(
+            int(self.get_clock().now().nanoseconds), self._web_goal_sequence)
+        transition = self.policy.start_single_goal(
+            Waypoint('web_goal', request.x, request.y, request.yaw), goal_id)
+        self._handle_transition(transition)
+        response.accepted = bool(transition.send_goal)
+        response.goal_id = goal_id if response.accepted else ''
+        response.message = ('single goal accepted' if response.accepted
+                            else transition.event)
+        return response
+
+    def _reload_route_callback(self, _request, response):
+        if self.policy.active or self._goal_handle is not None:
+            response.success = False
+            response.message = 'route cannot be reloaded while navigation is active'
+            return response
+        try:
+            route = load_route(self.get_parameter('route_file').value)
+        except RouteValidationError as exc:
+            self.route_error = str(exc)
+            response.success = False
+            response.message = self.route_error
+            self._publish_route_alarm()
+            return response
+        self.route = route
+        self.route_error = ''
+        self.policy.route = route
+        self._publish_route()
+        self._publish_route_alarm()
+        self._publish_status(force=True)
+        response.success = True
+        response.message = 'route reloaded'
+        return response
+
+    def _single_goal_preconditions(self):
+        now = time.monotonic()
+        if not self._safety_fresh(now) or self._safety_state != READY:
+            return False, 'safety state is not fresh READY'
+        if self.policy.active or self._goal_handle is not None:
+            return False, 'another navigation goal is active'
+        if not self.action_client.server_is_ready():
+            return False, 'NavigateToPose action server is unavailable'
+        return True, 'preconditions pass'
 
     def _service_preconditions(self, require_idle):
         now = time.monotonic()
@@ -213,7 +288,8 @@ class PatrolManager(Node):
         goal = NavigateToPose.Goal()
         goal.pose = PoseStamped()
         goal.pose.header.stamp = self.get_clock().now().to_msg()
-        goal.pose.header.frame_id = self.route.frame_id
+        goal.pose.header.frame_id = (
+            'map' if self.policy.mode == SINGLE_GOAL else self.route.frame_id)
         goal.pose.pose.position.x = waypoint.x
         goal.pose.pose.position.y = waypoint.y
         goal.pose.pose.orientation.z = math.sin(waypoint.yaw / 2.0)
@@ -440,8 +516,9 @@ class PatrolManager(Node):
             payload['route_configured'] = bool(self.route.configured)
         else:
             payload['route_configured'] = False
-        self.status_publisher.publish(String(
-            data=json.dumps(payload, sort_keys=True, separators=(',', ':'))))
+        serialized = json.dumps(payload, sort_keys=True, separators=(',', ':'))
+        self.status_publisher.publish(String(data=serialized))
+        self.navigation_status_publisher.publish(String(data=serialized))
         self._last_status_publish_at = now
 
     def _publish_route(self):

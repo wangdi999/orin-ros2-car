@@ -39,5 +39,8 @@
     "maxLinearMps": 0.05,
     "maxAngularRps": 0.2,
     "autoStartPatrol": false
+  },
+  "safety": {
+    "motionWarningAcknowledgedAt": null
   }
 }

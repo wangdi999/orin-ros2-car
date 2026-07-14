@@ -15,6 +15,7 @@ CANCELLING = 'CANCELLING'
 
 PATROL = 'PATROL'
 RETURN_HOME = 'RETURN_HOME'
+SINGLE_GOAL = 'SINGLE_GOAL'
 
 # action_msgs/msg/GoalStatus values in ROS 2 Foxy.
 STATUS_SUCCEEDED = 4
@@ -42,6 +43,8 @@ class PatrolPolicy:
         self.index = -1
         self.attempt = 0
         self.reason = ''
+        self.single_goal: Optional[Waypoint] = None
+        self.goal_id = ''
 
     @property
     def active(self):
@@ -52,7 +55,9 @@ class PatrolPolicy:
     def current_waypoint(self) -> Optional[Waypoint]:
         """Return the current goal selected by the policy."""
         if self.route is None:
-            return None
+            return self.single_goal if self.mode == SINGLE_GOAL else None
+        if self.mode == SINGLE_GOAL:
+            return self.single_goal
         if self.mode == RETURN_HOME:
             return self.route.home
         if 0 <= self.index < len(self.route.waypoints):
@@ -65,6 +70,8 @@ class PatrolPolicy:
         if self.active:
             return Transition('already-active', terminal=True)
         self.route = route
+        self.single_goal = None
+        self.goal_id = ''
         self.mode = PATROL
         self.index = 0
         self.attempt = 0
@@ -72,10 +79,28 @@ class PatrolPolicy:
         self.reason = ''
         return Transition('patrol-started', send_goal=True)
 
+    def start_single_goal(self, waypoint, goal_id=''):
+        """Start one map-frame goal without creating a route."""
+        if self.active:
+            return Transition('already-active', terminal=True)
+        if not isinstance(waypoint, Waypoint):
+            return Transition('invalid-single-goal', terminal=True)
+        self.route = None
+        self.single_goal = waypoint
+        self.goal_id = str(goal_id)
+        self.mode = SINGLE_GOAL
+        self.index = -1
+        self.attempt = 0
+        self.state = NAVIGATING
+        self.reason = ''
+        return Transition('single-goal-started', send_goal=True)
+
     def start_return_home(self, route):
         """Cancel logical patrol state and select Home as the only goal."""
         require_executable_route(route)
         self.route = route
+        self.single_goal = None
+        self.goal_id = ''
         self.mode = RETURN_HOME
         self.index = -1
         self.attempt = 0
@@ -111,6 +136,10 @@ class PatrolPolicy:
             reason = 'goal_aborted'
         else:
             reason = 'goal_failed_status_{}'.format(status)
+        if self.mode == SINGLE_GOAL:
+            self.state = IDLE
+            self.reason = reason
+            return Transition(reason.replace('_', '-'), publish_alarm=True, terminal=True)
         return self._goal_failed(reason)
 
     def begin_waiting(self):
@@ -181,10 +210,15 @@ class PatrolPolicy:
             'route_configured': bool(
                 self.route is not None and self.route.configured),
             'reason': self.reason,
+            'goal_id': self.goal_id,
         }
 
     def _goal_succeeded(self):
         self.attempt = 0
+        if self.mode == SINGLE_GOAL:
+            self.state = IDLE
+            self.reason = 'goal_succeeded'
+            return Transition('single-goal-succeeded', terminal=True)
         if self.mode == RETURN_HOME:
             self.state = IDLE
             self.reason = 'home_reached'

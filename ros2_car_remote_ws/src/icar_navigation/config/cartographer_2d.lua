@@ -36,9 +36,12 @@ TRAJECTORY_BUILDER_2D.max_range = 12.0
 TRAJECTORY_BUILDER_2D.missing_data_ray_length = 5.0
 TRAJECTORY_BUILDER_2D.num_accumulated_range_data = 1
 TRAJECTORY_BUILDER_2D.use_online_correlative_scan_matching = true
-TRAJECTORY_BUILDER_2D.motion_filter.max_time_seconds = 0.5
-TRAJECTORY_BUILDER_2D.motion_filter.max_distance_meters = 0.05
-TRAJECTORY_BUILDER_2D.motion_filter.max_angle_radians = math.rad(0.2)
+-- Accept enough scans for the 0.10 m/s platform without creating hundreds
+-- of nearly identical nodes during a single 90-degree turn.  The previous
+-- math.rad(0.2) value meant 0.2 degrees, not 0.2 radians.
+TRAJECTORY_BUILDER_2D.motion_filter.max_time_seconds = 1.0
+TRAJECTORY_BUILDER_2D.motion_filter.max_distance_meters = 0.03
+TRAJECTORY_BUILDER_2D.motion_filter.max_angle_radians = math.rad(3.0)
 TRAJECTORY_BUILDER_2D.submaps.num_range_data = 70
 
 POSE_GRAPH.optimize_every_n_nodes = 35

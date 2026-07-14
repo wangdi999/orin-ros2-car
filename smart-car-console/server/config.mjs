@@ -47,6 +47,9 @@ const defaults = {
     maxLinearMps: 0.05,
     maxAngularRps: 0.2,
     autoStartPatrol: false
+  },
+  safety: {
+    motionWarningAcknowledgedAt: null
   }
 };
 
@@ -130,6 +133,11 @@ function mergeConfig(config) {
         defaults.navigation.maxAngularRps
       ),
       autoStartPatrol: false
+    },
+    safety: {
+      motionWarningAcknowledgedAt: typeof config?.safety?.motionWarningAcknowledgedAt === 'string'
+        ? config.safety.motionWarningAcknowledgedAt
+        : null
     }
   };
 }
@@ -167,7 +175,11 @@ export function publicConfig() {
     },
     control: config.control,
     video: config.video,
-    navigation: config.navigation
+    navigation: config.navigation,
+    safety: {
+      motionWarningAcknowledged: Boolean(config.safety?.motionWarningAcknowledgedAt),
+      motionWarningAcknowledgedAt: config.safety?.motionWarningAcknowledgedAt ?? null
+    }
   };
 }
 
@@ -188,7 +200,8 @@ export function mergeApiConfig(current, body = {}) {
     },
     control: { ...current.control, ...(body?.control ?? {}) },
     video: { ...current.video, ...(body?.video ?? {}) },
-    navigation: { ...current.navigation, ...(body?.navigation ?? {}) }
+    navigation: { ...current.navigation, ...(body?.navigation ?? {}) },
+    safety: { ...current.safety }
   };
 }
 

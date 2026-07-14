@@ -31,6 +31,275 @@ body {
     linear-gradient(180deg, #071015 0%, #0b1218 100%);
 }
 
+.navigation-workbench {
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  padding: 18px;
+}
+
+.navigation-workbench-header,
+.workbench-summary,
+.navigation-tabs,
+.workbench-actions,
+.import-row,
+.route-point-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.navigation-workbench-header {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.navigation-workbench-header h2,
+.navigation-workbench-header p,
+.map-list h3,
+.workbench-sidebar h3,
+.live-map-summary h3 {
+  margin: 0;
+}
+
+.navigation-workbench-header p {
+  color: var(--muted);
+  margin-top: 5px;
+}
+
+.navigation-tabs {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+
+.navigation-tabs button {
+  border: 0;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  padding: 10px 16px;
+}
+
+.navigation-tabs button.active,
+.route-point-selector button.active,
+.map-list button.active {
+  background: rgba(18, 201, 183, 0.14);
+  color: var(--teal);
+  border-color: var(--teal);
+}
+
+.navigation-tabs b {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+
+.workbench-content {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 560px;
+}
+
+.pose-step {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+
+.route-step {
+  grid-template-columns: minmax(460px, 1fr) minmax(400px, 0.9fr);
+}
+
+.workbench-sidebar,
+.map-list,
+.pose-actions,
+.route-editor,
+.live-map-summary,
+.pose-editor {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 14px;
+}
+
+.workbench-sidebar > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.workbench-sidebar span,
+.map-list small,
+.pose-editor small {
+  color: var(--muted);
+}
+
+.workbench-main {
+  min-width: 0;
+}
+
+.interactive-map {
+  width: 100%;
+  max-height: 500px;
+  border: 1px solid #33505d;
+  border-radius: 8px;
+  background: #081016;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.interactive-map.read-only {
+  cursor: default;
+}
+
+.workbench-actions {
+  margin-top: 12px;
+}
+
+.workbench-actions.wrap {
+  flex-wrap: wrap;
+}
+
+.workbench-actions label,
+.pose-editor label,
+.route-policy-grid label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workbench-actions input,
+.import-row input,
+.pose-editor input,
+.route-point-editor input,
+.route-policy-grid input,
+.route-policy-grid select {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #0c151c;
+  color: var(--text);
+  padding: 6px 8px;
+}
+
+.button-link {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.map-list button {
+  width: 100%;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.pose-editor {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.pose-editor input {
+  width: 100px;
+}
+
+.pose-actions > button {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.route-point-selector {
+  margin-top: 10px;
+}
+
+.route-editor {
+  overflow: auto;
+}
+
+.route-point-editor {
+  display: grid;
+  grid-template-columns: 1.5fr repeat(4, 1fr);
+  gap: 6px;
+  border: 1px solid var(--line);
+  margin-bottom: 9px;
+}
+
+.route-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.check-label input {
+  min-height: auto;
+}
+
+.blocker-list,
+.ready-note,
+.workbench-notice,
+.operation-strip {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+}
+
+.blocker-list {
+  border: 1px solid rgba(240, 82, 82, 0.42);
+  background: rgba(240, 82, 82, 0.08);
+}
+
+.blocker-list ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.ready-note,
+.workbench-notice.success {
+  border: 1px solid rgba(59, 210, 114, 0.4);
+  background: rgba(59, 210, 114, 0.08);
+}
+
+.workbench-notice.error,
+.operation-strip.failed {
+  border: 1px solid rgba(240, 82, 82, 0.45);
+  background: rgba(240, 82, 82, 0.1);
+}
+
+.operation-strip {
+  display: grid;
+  grid-template-columns: 140px 160px 1fr;
+  border: 1px solid rgba(104, 169, 255, 0.4);
+  background: rgba(104, 169, 255, 0.08);
+  margin-bottom: 12px;
+}
+
+.motion-warning {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.motion-warning > div {
+  width: min(520px, 90vw);
+  padding: 24px;
+  border: 1px solid var(--amber);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
 button,
 input,
 select {

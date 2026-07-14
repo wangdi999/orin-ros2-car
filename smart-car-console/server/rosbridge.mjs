@@ -14,6 +14,7 @@ import {
 import { parsePointCloud2 } from './pointCloud.mjs';
 import {
   addLog,
+  clearPerceptionTelemetry,
   telemetry,
   updateNavigation,
   updateRosbridge,
@@ -22,6 +23,14 @@ import {
 } from './state.mjs';
 import { rosbridgeType } from './topicDiscovery.mjs';
 import { subscriptionTopics } from './topicRegistry.mjs';
+import {
+  INITIAL_POSE_TOPIC,
+  INITIAL_POSE_TYPE,
+  NAVIGATE_POSE_SERVICE,
+  NAVIGATE_POSE_SERVICE_TYPE,
+  buildInitialPoseMessage,
+  normalizePose
+} from './navigationProtocol.mjs';
 
 export const ROS2_TWIST_TYPE = 'geometry_msgs/msg/Twist';
 export const ROS2_BOOL_TYPE = 'std_msgs/msg/Bool';
@@ -42,9 +51,9 @@ export class RosbridgeClient extends EventEmitter {
     this.tfBuffer = new Tf2dBuffer();
     this.amclPose = null;
     this.odomPose = null;
-    this.perceptionSubscriptions = new Map([
-      ['/tracking_cmd_vel_shadow', { role: 'trackingVelocity', type: 'geometry_msgs/Twist' }]
-    ]);
+    this.perceptionSubscriptions = new Map();
+    this.activePerceptionSubscriptions = new Map();
+    this.perceptionPreviewEnabled = false;
   }
 
   get url() {
@@ -66,8 +75,10 @@ export class RosbridgeClient extends EventEmitter {
       addLog('info', 'rosbridge', `Connected to ${this.url}`);
       this.advertise(MANUAL_CMD_TOPIC, ROS2_TWIST_TYPE, 1);
       this.advertise(ESTOP_TOPIC, ROS2_BOOL_TYPE, 1);
+      this.advertise(INITIAL_POSE_TOPIC, INITIAL_POSE_TYPE, 1);
       for (const sub of subscriptionTopics()) this.subscribe(sub);
-      this.resubscribePerception();
+      this.activePerceptionSubscriptions.clear();
+      this.syncPerceptionSubscriptions();
     });
 
     ws.on('message', (data) => {
@@ -125,6 +136,11 @@ export class RosbridgeClient extends EventEmitter {
     });
   }
 
+  unsubscribe(topic) {
+    if (!topic) return false;
+    return this.send({ op: 'unsubscribe', topic });
+  }
+
   advertise(topic, type, queueSize = 1) {
     return this.send({
       op: 'advertise',
@@ -135,23 +151,43 @@ export class RosbridgeClient extends EventEmitter {
   }
 
   setPerceptionSubscriptions(matches = {}) {
-    const next = new Map([
-      ['/tracking_cmd_vel_shadow', { role: 'trackingVelocity', type: 'geometry_msgs/Twist' }]
-    ]);
+    const next = new Map();
     for (const match of Object.values(matches)) {
       if (!match?.topic || !match?.type) continue;
       const type = rosbridgeType(match.type);
       if (!type) continue;
-      next.set(match.topic, { role: match.role, type });
+      next.set(match.topic, {
+        role: match.role,
+        type,
+        throttleRate: perceptionThrottleRate(match.role),
+        queueLength: 1
+      });
     }
     this.perceptionSubscriptions = next;
-    this.resubscribePerception();
+    this.syncPerceptionSubscriptions();
   }
 
-  resubscribePerception() {
+  setPerceptionPreviewEnabled(enabled) {
+    this.perceptionPreviewEnabled = Boolean(enabled);
+    this.syncPerceptionSubscriptions();
+    if (!this.perceptionPreviewEnabled) clearPerceptionTelemetry();
+  }
+
+  syncPerceptionSubscriptions() {
     if (!this.connected) return;
-    for (const [topic, value] of this.perceptionSubscriptions.entries()) {
-      this.subscribe({ topic, type: value.type });
+    const desired = this.perceptionPreviewEnabled ? this.perceptionSubscriptions : new Map();
+    for (const topic of this.activePerceptionSubscriptions.keys()) {
+      if (!desired.has(topic)) {
+        this.unsubscribe(topic);
+        this.activePerceptionSubscriptions.delete(topic);
+      }
+    }
+    for (const [topic, value] of desired.entries()) {
+      const active = this.activePerceptionSubscriptions.get(topic);
+      if (sameSubscription(active, value)) continue;
+      if (active) this.unsubscribe(topic);
+      this.subscribe({ topic, ...value });
+      this.activePerceptionSubscriptions.set(topic, value);
     }
   }
 
@@ -161,6 +197,20 @@ export class RosbridgeClient extends EventEmitter {
 
   publishTwist(twist) {
     return this.publish(MANUAL_CMD_TOPIC, twist);
+  }
+
+  publishInitialPose(pose) {
+    return this.publish(INITIAL_POSE_TOPIC, buildInitialPoseMessage(pose));
+  }
+
+  sendNavigationGoal(pose, timeoutMs = 3500) {
+    const goal = normalizePose(pose, 'goal');
+    return this.callService(
+      NAVIGATE_POSE_SERVICE,
+      NAVIGATE_POSE_SERVICE_TYPE,
+      goal,
+      timeoutMs
+    );
   }
 
   stopManual(repeat = 4) {
@@ -196,6 +246,10 @@ export class RosbridgeClient extends EventEmitter {
   }
 
   callTrigger(service, timeoutMs = 2500) {
+    return this.callService(service, TRIGGER_SERVICE_TYPE, {}, timeoutMs);
+  }
+
+  callService(service, type, args = {}, timeoutMs = 2500) {
     if (!this.connected) {
       return Promise.resolve(this.recordServiceResult(service, {
         ok: false,
@@ -203,7 +257,7 @@ export class RosbridgeClient extends EventEmitter {
         message: 'ROSBridge is not connected'
       }));
     }
-    const id = `trigger-${Date.now()}-${this.serviceSequence += 1}`;
+    const id = `service-${Date.now()}-${this.serviceSequence += 1}`;
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingServiceCalls.delete(id);
@@ -218,8 +272,8 @@ export class RosbridgeClient extends EventEmitter {
         op: 'call_service',
         id,
         service,
-        type: TRIGGER_SERVICE_TYPE,
-        args: {}
+        type,
+        args
       })) {
         clearTimeout(timer);
         this.pendingServiceCalls.delete(id);
@@ -298,12 +352,15 @@ export class RosbridgeClient extends EventEmitter {
     if (payload.topic === '/patrol/status') {
       updateNavigation({ patrol: parsePatrolStatus(msg) });
     }
+    if (payload.topic === '/navigation/status') {
+      updateNavigation({ goal: parsePatrolStatus(msg) });
+    }
     if (payload.topic === '/navigate_to_pose/_action/status') {
       updateNavigation({ action: parseNavigateStatus(msg, receivedAt) });
     }
     if (payload.topic === '/alarm') this.emit('car-alarm', parseTypedAlarm(msg));
     if (payload.topic === '/alarm_events') this.emit('car-alarm', parseAlarmEvent(msg));
-    const perception = this.perceptionSubscriptions.get(payload.topic);
+    const perception = this.perceptionPreviewEnabled && this.perceptionSubscriptions.get(payload.topic);
     if (perception) this.handlePerceptionMessage(payload.topic, perception, msg);
   }
 
@@ -331,11 +388,13 @@ export class RosbridgeClient extends EventEmitter {
     clearTimeout(pending.timer);
     const values = payload.values ?? {};
     const transportOk = payload.result !== false;
-    const success = transportOk && values.success !== false;
+    const serviceAccepted = values.accepted !== false && values.success !== false;
+    const success = transportOk && serviceAccepted;
     const result = this.recordServiceResult(pending.service, {
       ok: transportOk,
       success,
-      message: String(values.message ?? (success ? 'accepted' : 'rejected'))
+      message: String(values.message ?? (success ? 'accepted' : 'rejected')),
+      values
     });
     pending.resolve(result);
   }
@@ -451,7 +510,8 @@ function parsePatrolStatus(msg = {}) {
     index: finite(parsed.index),
     attempt: finite(parsed.attempt),
     routeConfigured: Boolean(parsed.route_configured),
-    reason: parsed.reason == null ? null : String(parsed.reason)
+    reason: parsed.reason == null ? null : String(parsed.reason),
+    goalId: parsed.goal_id == null ? null : String(parsed.goal_id)
   };
 }
 
@@ -588,6 +648,17 @@ function parseTrackingTwist(msg) {
       z: round(msg.angular?.z, 3)
     }
   };
+}
+
+function perceptionThrottleRate(role) {
+  return role === 'pointCloud' ? 500 : 200;
+}
+
+function sameSubscription(previous, next) {
+  return previous?.role === next?.role
+    && previous?.type === next?.type
+    && previous?.throttleRate === next?.throttleRate
+    && previous?.queueLength === next?.queueLength;
 }
 
 function parseNavigateStatus(msg = {}, updatedAt = new Date().toISOString()) {

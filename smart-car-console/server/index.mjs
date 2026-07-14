@@ -9,10 +9,12 @@ import { buildDriveCommand, isZeroTwist, ZERO_TWIST } from './control.mjs';
 import { getConfig, loadConfig, mergeApiConfig, publicConfig, saveConfig } from './config.mjs';
 import { PerceptionManager } from './perceptionManager.mjs';
 import { RecordingManager } from './recordingManager.mjs';
+import { NavigationWorkspaceManager } from './navigationWorkspace.mjs';
 import { RosbridgeClient } from './rosbridge.mjs';
 import { requireJsonContentType, validateLocalRequest } from './requestSecurity.mjs';
 import { ServiceManager } from './serviceManager.mjs';
 import { SshExecutor } from './ssh.mjs';
+import { TelemetryDelivery } from './telemetryDelivery.mjs';
 import { publicTopicRegistry } from './topicRegistry.mjs';
 import { streamZipDirectory } from './zipDownload.mjs';
 import {
@@ -49,6 +51,16 @@ const capabilityManager = new CapabilityManager({
   cachePath: path.join(dataDir, 'capability-cache.json'),
   logger: addLog
 });
+const navigationWorkspace = new NavigationWorkspaceManager({
+  ssh,
+  rosbridge,
+  serviceManager,
+  getConfig,
+  saveConfig,
+  getRuntime: () => runtime,
+  getTelemetry: () => telemetry,
+  logger: addLog
+});
 await alarmManager.load();
 updateVideo({ ...getConfig().video, lastConfiguredAt: null });
 
@@ -81,7 +93,7 @@ rosbridge.on('disconnect', () => {
     message: '连接断开，已请求急停',
     dedupeKey: 'rosbridge:disconnect'
   });
-  void emergencyStop('ROSBridge disconnected');
+  void stopMotion('ROSBridge disconnected');
 });
 
 rosbridge.on('car-alarm', (event) => {
@@ -103,7 +115,14 @@ const server = http.createServer(async (req, res) => {
     serveStatic(req, res, url);
   } catch (error) {
     addLog('error', 'api', error.message);
-    json(res, Number(error.statusCode) || 500, { ok: false, error: error.message });
+    json(res, Number(error.statusCode) || 500, {
+      ok: false,
+      code: error.code || 'INTERNAL_ERROR',
+      message: error.message,
+      error: error.message,
+      blockers: error.blockers || [],
+      state: snapshot()
+    });
   }
 });
 
@@ -122,24 +141,26 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 telemetryWss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ type: 'snapshot', data: snapshot() }));
+  const delivery = new TelemetryDelivery(ws);
+  delivery.sendInitialSnapshot(snapshot());
   const onSnapshot = (data) => {
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'snapshot', data }));
+    delivery.queueSnapshot(data);
   };
   const onLog = (entry) => {
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'log', data: entry }));
+    delivery.queueLog(entry);
   };
   const onTelemetry = (data) => {
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'telemetry', data }));
+    delivery.queueTelemetry(data);
   };
   const onRuntimePatch = (data) => {
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'runtime-patch', data }));
+    delivery.queueRuntimePatch(data);
   };
   bus.on('snapshot', onSnapshot);
   bus.on('log', onLog);
   bus.on('telemetry', onTelemetry);
   bus.on('runtime-patch', onRuntimePatch);
   ws.on('close', () => {
+    delivery.close();
     bus.off('snapshot', onSnapshot);
     bus.off('log', onLog);
     bus.off('telemetry', onTelemetry);
@@ -153,7 +174,7 @@ telemetryWss.on('connection', (ws) => {
         message: '浏览器遥测 WebSocket 已断开',
         dedupeKey: 'ui:telemetry_disconnect'
       });
-      void emergencyStop('Telemetry WebSocket disconnected');
+      void stopMotion('Telemetry WebSocket disconnected');
       return;
     }
     markCommandStopped('Telemetry WebSocket disconnected; heartbeat protection disabled');
@@ -189,7 +210,7 @@ setInterval(() => {
       message: `超过 ${watchdogMs} ms 未收到有效遥控/心跳`,
       dedupeKey: 'safety:watchdog_timeout'
     });
-    void emergencyStop('Drive watchdog timeout');
+    void stopMotion('Drive watchdog timeout');
   }
 }, 100);
 
@@ -198,11 +219,119 @@ setInterval(() => {
 }, 1000);
 
 process.on('SIGINT', async () => {
-  await emergencyStop('API process interrupted');
+  await stopMotion('API process interrupted');
   process.exit(0);
 });
 
 async function handleApi(req, res, url) {
+  if (req.method === 'POST' && url.pathname === '/api/navigation/mode') {
+    const body = await readJson(req);
+    const operation = navigationWorkspace.startModeSwitch(String(body.mode ?? ''));
+    json(res, 202, response('OPERATION_ACCEPTED', 'Mode switch accepted', { operationId: operation.operationId, operation, state: snapshot() }));
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/navigation/operations/current') {
+    json(res, 200, response('OK', 'Navigation operation state', { operation: navigationWorkspace.currentOperation(), state: snapshot() }));
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/maps') {
+    const maps = await navigationWorkspace.listMaps();
+    json(res, 200, response('OK', 'Managed maps', { maps, state: snapshot() }));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/maps/save') {
+    const body = await readJson(req);
+    const operation = navigationWorkspace.startMapSave(body.name ?? body.mapId);
+    json(res, 202, response('OPERATION_ACCEPTED', 'Map save accepted', { operationId: operation.operationId, operation, state: snapshot() }));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/maps/import-active') {
+    const body = await readJson(req);
+    const result = await navigationWorkspace.importActiveMap(body.name ?? body.mapId);
+    json(res, 200, response('MAP_IMPORTED', 'Active map imported into managed storage', { result, state: snapshot() }));
+    return;
+  }
+  const mapActionMatch = url.pathname.match(/^\/api\/maps\/([^/]+)\/(verify|activate|archive|restore)$/);
+  if (req.method === 'POST' && mapActionMatch) {
+    const mapId = decodeURIComponent(mapActionMatch[1]);
+    const action = mapActionMatch[2];
+    const result = action === 'verify'
+      ? await navigationWorkspace.verifyMap(mapId)
+      : action === 'activate'
+        ? await navigationWorkspace.activateMap(mapId)
+        : await navigationWorkspace.setMapArchived(mapId, action === 'archive');
+    const statusCode = result.valid === false ? 422 : 200;
+    json(res, statusCode, response(result.valid === false ? 'MAP_INVALID' : 'OK', result.message || `Map ${action} completed`, {
+      ok: statusCode < 400,
+      result,
+      state: snapshot(),
+      blockers: result.blockers || []
+    }));
+    return;
+  }
+  const mapPreviewMatch = url.pathname.match(/^\/api\/maps\/([^/]+)\/preview$/);
+  if (req.method === 'GET' && mapPreviewMatch) {
+    const preview = await navigationWorkspace.getMapPreview(decodeURIComponent(mapPreviewMatch[1]));
+    json(res, 200, response('OK', 'Map preview', { preview, state: snapshot() }));
+    return;
+  }
+  const mapFileMatch = url.pathname.match(/^\/api\/maps\/([^/]+)\/files\/(pgm|yaml|pbstream)$/);
+  if (req.method === 'GET' && mapFileMatch) {
+    const file = await navigationWorkspace.getMapFile(decodeURIComponent(mapFileMatch[1]), mapFileMatch[2]);
+    res.writeHead(200, {
+      'content-type': file.extension === 'yaml' ? 'application/yaml; charset=utf-8' : 'application/octet-stream',
+      'content-disposition': `attachment; filename="${file.mapId}.${file.extension}"`,
+      'cache-control': 'no-store'
+    });
+    res.end(file.data);
+    return;
+  }
+  const routeMatch = url.pathname.match(/^\/api\/routes\/([^/]+)$/);
+  if (routeMatch && req.method === 'GET') {
+    const route = await navigationWorkspace.getRoute(decodeURIComponent(routeMatch[1]));
+    json(res, 200, response('OK', 'Map route', { route, state: snapshot() }));
+    return;
+  }
+  if (routeMatch && req.method === 'PUT') {
+    const route = await navigationWorkspace.saveRoute(decodeURIComponent(routeMatch[1]), await readJson(req));
+    json(res, 200, response('ROUTE_SAVED', 'Route saved and reloaded', { route, state: snapshot() }));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/localization/initial-pose') {
+    const pose = navigationWorkspace.publishInitialPose(await readJson(req));
+    json(res, 200, response('INITIAL_POSE_PUBLISHED', 'Initial pose published', { pose, state: snapshot() }));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/navigation/goals') {
+    const result = await navigationWorkspace.sendGoal(await readJson(req));
+    const statusCode = result?.ok === false ? 503 : result?.accepted === false || result?.success === false ? 409 : 202;
+    json(res, statusCode, response(statusCode === 202 ? 'GOAL_ACCEPTED' : 'GOAL_REJECTED', result?.message || 'Navigation goal processed', {
+      ok: statusCode < 400,
+      result,
+      state: snapshot()
+    }));
+    return;
+  }
+  if (req.method === 'DELETE' && url.pathname === '/api/navigation/goals/current') {
+    const result = await navigationWorkspace.cancelGoal();
+    const statusCode = result?.ok === false ? 503 : result?.success === false ? 409 : 200;
+    json(res, statusCode, response(statusCode === 200 ? 'GOAL_CANCELLED' : 'GOAL_CANCEL_FAILED', result?.message || 'Navigation cancellation requested', {
+      ok: statusCode < 400,
+      result,
+      state: snapshot()
+    }));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/safety/motion-warning/ack') {
+    const result = await navigationWorkspace.setMotionWarningAcknowledged(true);
+    json(res, 200, response('MOTION_WARNING_ACKNOWLEDGED', 'Motion warning acknowledged', { result, config: publicConfig(), state: snapshot() }));
+    return;
+  }
+  if (req.method === 'DELETE' && url.pathname === '/api/safety/motion-warning/ack') {
+    const result = await navigationWorkspace.setMotionWarningAcknowledged(false);
+    json(res, 200, response('MOTION_WARNING_RESET', 'Motion warning acknowledgement reset', { result, config: publicConfig(), state: snapshot() }));
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/api/config') {
     json(res, 200, { ok: true, config: publicConfig() });
     return;
@@ -278,6 +407,16 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/perception/status') {
     await perceptionManager.refreshStatus();
     json(res, 200, { ok: true, perception: runtime.perception, recording: runtime.recording, state: snapshot() });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/telemetry/preview') {
+    const body = await readJson(req);
+    rosbridge.setPerceptionPreviewEnabled(body.enabled === true);
+    json(res, 200, {
+      ok: true,
+      enabled: body.enabled === true,
+      state: snapshot()
+    });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/perception/start') {
@@ -356,6 +495,7 @@ async function handleApi(req, res, url) {
     ['/api/patrol/return-home', '/patrol/return_home']
   ]);
   if (req.method === 'POST' && triggerServices.has(url.pathname)) {
+    if (url.pathname !== '/api/patrol/cancel') navigationWorkspace.assertMotionStartAllowed();
     const result = await rosbridge.callTrigger(triggerServices.get(url.pathname));
     const statusCode = result.success ? 200 : result.ok ? 409 : 503;
     json(res, statusCode, { ...result, state: snapshot() });
@@ -374,6 +514,7 @@ async function handleApi(req, res, url) {
       json(res, stopped ? 200 : 503, { ok: stopped, twist: ZERO_TWIST, state: snapshot() });
       return;
     }
+    navigationWorkspace.assertMotionStartAllowed();
     if (!runtime.status.canDrive) {
       json(res, 409, {
         ok: false,
@@ -579,4 +720,14 @@ function json(res, statusCode, payload) {
     'cache-control': 'no-store'
   });
   res.end(JSON.stringify(payload));
+}
+
+function response(code, message, fields = {}) {
+  return {
+    ok: true,
+    code,
+    message,
+    blockers: fields.blockers || [],
+    ...fields
+  };
 }

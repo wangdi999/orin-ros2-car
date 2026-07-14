@@ -202,8 +202,8 @@ def main():
     args = parser.parse_args()
     if args.approval_token != APPROVAL_TOKEN:
         parser.error('explicit area-clear/e-stop approval token is required')
-    if not 0.30 <= args.side_meters <= 0.80:
-        parser.error('side-meters must be within 0.30..0.80')
+    if not 0.30 <= args.side_meters <= 1.50:
+        parser.error('side-meters must be within 0.30..1.50')
 
     rclpy.init()
     node = MappingSquareProbe(args.side_meters)

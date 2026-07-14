@@ -125,6 +125,16 @@ export const TOPIC_REGISTRY = [
     description: 'Read-only NavigateToPose action status'
   },
   {
+    key: 'navigationStatus',
+    topic: '/navigation/status',
+    type: 'std_msgs/msg/String',
+    direction: 'subscribe',
+    throttleRate: 100,
+    queueLength: 1,
+    optional: true,
+    description: 'Unified single-goal, patrol, and return-home status'
+  },
+  {
     key: 'imuRaw',
     topic: '/imu/data_raw',
     type: 'sensor_msgs/Imu',

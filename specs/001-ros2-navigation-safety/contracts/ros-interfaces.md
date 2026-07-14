@@ -23,6 +23,7 @@ Emergency exception: if the normal chain is unavailable, an SSH fallback may pub
 | `/safety/state` | `std_msgs/msg/String` | `safety_manager` | on change + 10 Hz heartbeat | states in [data-model.md](../data-model.md#4-safetystate); arbiter fails closed after 0.30 s stale |
 | `/chassis/connected` | `std_msgs/msg/Bool` | X3 driver | 10 Hz and immediately on change | true only after serial is open and telemetry I/O succeeds; stale after 0.30 s |
 | `/patrol/status` | `std_msgs/msg/String` | `patrol_manager` | on change; 10 Hz active / 2 Hz idle heartbeat | compact JSON with schema below |
+| `/navigation/status` | `std_msgs/msg/String` | `patrol_manager` | same cadence as `/patrol/status` | unified JSON state for single-goal, patrol, and return-home ownership; includes `goal_id` |
 | `/voltage` | `std_msgs/msg/Float32` | X3 driver | existing 10 Hz | finite volts; safety manager keeps 10-sample mean |
 | `/vel_raw` | `geometry_msgs/msg/Twist` | X3 driver | existing 10 Hz | measured chassis velocity; finite values |
 | `/odom_raw` | `nav_msgs/msg/Odometry` | `base_node_X3` | ≥ 20 Hz target | `odom` frame, `base_footprint` child; no TF publication |
@@ -104,6 +105,9 @@ All services use `std_srvs/srv/Trigger` in Foxy. `success=false` must include an
 | `/patrol/start` | `patrol_manager` | safety `READY`; route configured and valid; no active run | starts route at first waypoint |
 | `/patrol/cancel` | `patrol_manager` | always callable | cancels active goal, reaches `IDLE`; idempotent when idle |
 | `/patrol/return_home` | `patrol_manager` | localization healthy; configured Home; no safety state that forbids controlled return | cancels existing run and starts Home goal |
+| `/navigation/send_goal` | `patrol_manager` | navigation mode; safety ready; no active single-goal, patrol, or return-home run | accepts `car_interfaces/srv/NavigatePose {x,y,yaw}` and starts one map-frame goal |
+| `/navigation/cancel` | `patrol_manager` | always callable | cancels whichever coordinator-owned goal is active; idempotent when idle |
+| `/patrol/reload_route` | `patrol_manager` | coordinator idle; configured route file remains valid | reloads Home plus exactly three waypoints without restarting Nav2 |
 
 The low-battery service does not itself bypass the safety state. `safety_manager` enters `LOW_BATTERY_RETURN`; `patrol_manager` observes it, cancels the old goal and reports `mode=RETURN_HOME` through `/patrol/status`. The arbiter then permits only fresh return-home navigation, and safety consumes the same status for success/failure. No second control topic can accidentally authorize motion.
 
@@ -190,3 +194,6 @@ Runtime ownership guard: after startup grace, safety manager locks `OWNERSHIP_FA
 - Emergency stop publishes `/safety/estop=true` and may additionally use the documented zero-only fallback if rosbridge safety services/topics are unavailable.
 - Reset invokes `/safety/reset` and surfaces its `success/message`; it never silently clears local UI state on service failure.
 - Service startup reports safe-base, mapping and navigation mode separately and never starts mapping and navigation together.
+- The local-only web API owns serialized mode/map operations, managed files under `/home/jetson/maps` and `/home/jetson/routes`, and publishes initial pose only on standard `/initialpose` in frame `map` with X/Y covariance `0.25 m²` and yaw covariance `0.0685 rad²`.
+- Motion warning acknowledgement gates non-zero manual control, single goals, patrol, return-home, and low-battery simulation. Zero commands, cancellation, and manual emergency stop always remain callable.
+- Browser/API heartbeat loss raises a critical alarm and requests repeated zero manual commands; it does not publish `/safety/estop=true`. The driver and arbiter watchdogs remain fail-closed.

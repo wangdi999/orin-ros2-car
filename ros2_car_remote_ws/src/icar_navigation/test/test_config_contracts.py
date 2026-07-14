@@ -105,6 +105,10 @@ class TestConfigContracts(unittest.TestCase):
         ]
         for text in required:
             self.assertIn(text, lua)
+        self.assertIn(
+            'motion_filter.max_angle_radians = math.rad(3.0)', lua)
+        self.assertNotIn(
+            'motion_filter.max_angle_radians = math.rad(0.2)', lua)
 
     def test_map_save_request_matches_foxy_write_state(self):
         save_map = (ROOT / 'scripts' / 'save_map.sh').read_text(

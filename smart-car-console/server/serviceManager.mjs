@@ -281,6 +281,10 @@ container_needs_recreate() {
           | grep -Fxq '/root/ros2_navigation_overlay'; then
     return 0
   fi
+  if ! docker inspect "$cid" --format '{{range .Mounts}}{{println .Destination}}{{end}}' 2>/dev/null \
+      | grep -Fxq '/root/routes'; then
+    return 0
+  fi
   for dev in /dev/astradepth /dev/astrauvc /dev/video0 /dev/rplidar; do
     if [ -e "$dev" ] && ! docker exec "$cid" test -e "$dev" >/dev/null 2>&1; then
       return 0
@@ -487,7 +491,7 @@ if [ -n "$cid" ] && container_needs_recreate "$cid"; then
 fi
 container_created=0
 if [ -z "$cid" ]; then
-  mkdir -p /home/jetson/ros2_navigation_overlay
+  mkdir -p /home/jetson/ros2_navigation_overlay /home/jetson/maps /home/jetson/routes
   device_args=""
   for dev in /dev/astradepth /dev/astrauvc /dev/video0 /dev/rplidar /dev/input; do
     if [ -e "$dev" ]; then
@@ -504,6 +508,7 @@ if [ -z "$cid" ]; then
     -v /home/jetson/temp:/root/icar_ros2_ws/temp \
     -v /home/jetson/rosboard:/root/rosboard \
     -v /home/jetson/maps:/root/maps \
+    -v /home/jetson/routes:/root/routes \
     -v /home/jetson/ros2_navigation_overlay:/root/ros2_navigation_overlay \
     $device_args \
     icar/ros-foxy:1.0.2 tail -f /dev/null)"

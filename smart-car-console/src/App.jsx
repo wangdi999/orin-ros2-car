@@ -9,6 +9,7 @@ import {
 } from './driveSmoothing.js';
 import { keyboardVectorFromCodes, isDriveKeyCode } from './keyboardDrive.js';
 import { capabilityUiState, visibleCapabilityItems } from './capabilityViewModel.js';
+import NavigationWorkbench from './NavigationWorkbench.jsx';
 
 const emptyState = {
   runtime: {
@@ -316,8 +317,10 @@ export default function App() {
   const safety = state.runtime.safety ?? emptyState.runtime.safety;
   const navigation = state.runtime.navigation ?? emptyState.runtime.navigation;
   const capabilities = state.runtime.capabilities ?? emptyState.runtime.capabilities;
+  const motionAcknowledged = Boolean(config.safety?.motionWarningAcknowledged);
+  const driveBlockers = motionAcknowledged ? status.blockers : [...status.blockers, '尚未确认首次运动风险提示'];
   const driveReady = status.canDrive && connection === 'connected' && !busy;
-  const canDrive = driveReady && !safety.emergencyStopActive;
+  const canDrive = driveReady && !safety.emergencyStopActive && motionAcknowledged;
 
   useEffect(() => {
     setLinearLimit((value) => Math.min(value, config.control.maxLinearMps));
@@ -344,6 +347,19 @@ export default function App() {
     if (payload.recordings) setRecordings(payload.recordings);
     return payload;
   }, []);
+
+  const setPerceptionPreviewEnabled = useCallback((enabled) => (
+    fetch('/api/telemetry/preview', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+      keepalive: true
+    }).then(async (response) => {
+      const payload = await response.json();
+      if (payload.state) setState(payload.state);
+      return payload;
+    })
+  ), []);
 
   useEffect(() => {
     let closed = false;
@@ -377,6 +393,17 @@ export default function App() {
   }, [refreshPerception, refreshRecordings, refreshStatus]);
 
   useEffect(() => {
+    if (activeSection !== 'vision') {
+      setPerceptionPreviewEnabled(false).catch(() => {});
+      return undefined;
+    }
+    setPerceptionPreviewEnabled(true).catch(() => {});
+    return () => {
+      setPerceptionPreviewEnabled(false).catch(() => {});
+    };
+  }, [activeSection, setPerceptionPreviewEnabled]);
+
+  useEffect(() => {
     if (connection !== 'connected') return undefined;
     const sendHeartbeat = () => {
       fetch('/api/heartbeat', { method: 'POST' }).catch(() => setConnection('offline'));
@@ -393,20 +420,13 @@ export default function App() {
         new Blob([JSON.stringify({ forward: 0, turn: 0, strafe: 0 })], { type: 'application/json' })
       );
     };
-    const unloadStop = () => {
-      if (config.control.heartbeatProtectionEnabled === false) {
-        stop();
-        return;
-      }
-      navigator.sendBeacon('/api/emergency-stop', new Blob(['{}'], { type: 'application/json' }));
-    };
     window.addEventListener('blur', stop);
-    window.addEventListener('beforeunload', unloadStop);
+    window.addEventListener('beforeunload', stop);
     return () => {
       window.removeEventListener('blur', stop);
-      window.removeEventListener('beforeunload', unloadStop);
+      window.removeEventListener('beforeunload', stop);
     };
-  }, [config.control.heartbeatProtectionEnabled]);
+  }, []);
 
   const postAction = useCallback(async (path, label) => {
     setBusy(label);
@@ -618,7 +638,7 @@ export default function App() {
                   disabled={!canDrive}
                   driveReady={driveReady}
                   emergencyStopActive={safety.emergencyStopActive}
-                  blockers={status.blockers}
+                  blockers={driveBlockers}
                   busy={busy}
                   vector={driveVector}
                   keyboardActive={keyboardActive}
@@ -648,6 +668,15 @@ export default function App() {
           )}
           {activeSection === 'capabilities' && (
             <CapabilityCenter capabilities={capabilities} topicActivity={state.runtime.topicActivity ?? {}} />
+          )}
+          {activeSection === 'navigation-workbench' && (
+            <NavigationWorkbench
+              config={config}
+              runtime={state.runtime}
+              telemetry={telemetry}
+              onRefresh={refreshStatus}
+              onOpenRemote={() => setActiveSection('remote')}
+            />
           )}
           {activeSection === 'vision' && (
             <>
@@ -682,7 +711,7 @@ export default function App() {
                 disabled={!canDrive}
                 driveReady={driveReady}
                 emergencyStopActive={safety.emergencyStopActive}
-                blockers={status.blockers}
+                blockers={driveBlockers}
                 busy={busy}
                 vector={driveVector}
                 keyboardActive={keyboardActive}
@@ -709,6 +738,7 @@ export default function App() {
               <NavigationActions
                 navigation={navigation}
                 profile={config.navigation}
+                motionAcknowledged={motionAcknowledged}
                 busy={busy}
                 onStart={() => postAction('/api/patrol/start', 'patrol-start')}
                 onCancel={() => postAction('/api/patrol/cancel', 'patrol-cancel')}
@@ -716,7 +746,7 @@ export default function App() {
                 onSimulateLowBattery={() => postAction('/api/safety/simulate-low-battery', 'simulate-low-battery')}
                 onResetSafety={() => postAction('/api/safety/reset', 'resume')}
               />
-              <RemoteSafetyPanel command={state.runtime.command} canDrive={canDrive} blockers={status.blockers} />
+              <RemoteSafetyPanel command={state.runtime.command} canDrive={canDrive} blockers={driveBlockers} />
             </div>
           )}
           {activeSection === 'alarms' && (
@@ -732,7 +762,7 @@ export default function App() {
           telemetry={telemetry}
           status={status}
           command={state.runtime.command}
-          blockers={status.blockers}
+          blockers={driveBlockers}
           telemetryOnline={connection === 'connected'}
         />
       </main>
@@ -762,6 +792,7 @@ function StatusMetric({ label, value, tone }) {
 
 function NavigationRail({ activeSection, onSelect, alarmCount = 0 }) {
   const items = [
+    ['navigation-workbench', 'map', '建图与导航工作台'],
     ['overview', 'home', '总览'],
     ['map', 'map', '地图与导航'],
     ['vision', 'camera', '视觉'],
@@ -1930,6 +1961,7 @@ function ServiceActions({ busy, onStart, onStop, onRefresh }) {
 function NavigationActions({
   navigation,
   profile,
+  motionAcknowledged,
   busy,
   onStart,
   onCancel,
@@ -1944,7 +1976,7 @@ function NavigationActions({
     <section className="panel action-panel">
       <PanelTitle title="Navigation / Patrol" />
       <div className="action-grid">
-        <button disabled={Boolean(busy) || !routeReady || !safetyReady} onClick={onStart}>
+        <button disabled={Boolean(busy) || !routeReady || !safetyReady || !motionAcknowledged} onClick={onStart}>
           <Icon name="play" />
           Start patrol
         </button>
@@ -1952,11 +1984,11 @@ function NavigationActions({
           <Icon name="square" />
           Cancel patrol
         </button>
-        <button disabled={Boolean(busy) || !routeReady || !safetyReady} onClick={onReturnHome}>
+        <button disabled={Boolean(busy) || !routeReady || !safetyReady || !motionAcknowledged} onClick={onReturnHome}>
           <Icon name="home" />
           Return Home
         </button>
-        <button disabled={Boolean(busy) || !routeReady || !safetyReady} onClick={onSimulateLowBattery}>
+        <button disabled={Boolean(busy) || !routeReady || !safetyReady || !motionAcknowledged} onClick={onSimulateLowBattery}>
           <Icon name="power" />
           Simulate low battery
         </button>
@@ -1968,6 +2000,7 @@ function NavigationActions({
       <small>
         {`Profile ${profile?.mode ?? 'safe_base'} · Safety ${navigation?.safetyState ?? 'UNKNOWN'} · Source ${navigation?.activeSource ?? 'UNKNOWN'} · Patrol ${patrol.state ?? 'UNKNOWN'} · ${routeReady ? 'route ready' : 'route not configured'}`}
       </small>
+      {!motionAcknowledged && <small className="bad-text">尚未确认首次运动风险提示，请进入建图与导航工作台确认。</small>}
       {navigation?.lastService && (
         <small className={navigation.lastService.success ? 'ok-text' : 'bad-text'}>
           {`${navigation.lastService.service}: ${navigation.lastService.success ? 'accepted' : 'rejected'} — ${navigation.lastService.message}`}
@@ -2113,6 +2146,17 @@ function ConfigDialog({ config, onClose, onSaved }) {
   });
   const [saving, setSaving] = useState(false);
 
+  async function resetMotionWarning() {
+    setSaving(true);
+    try {
+      const response = await fetch('/api/safety/motion-warning/ack', { method: 'DELETE' });
+      const body = await response.json();
+      if (body.config) onSaved(body.config);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function save(event) {
     event.preventDefault();
     setSaving(true);
@@ -2161,6 +2205,7 @@ function ConfigDialog({ config, onClose, onSaved }) {
           <small>仅可在 local-config.json 中设置</small>
         </label>
         <div className="dialog-actions">
+          <button type="button" disabled={saving} onClick={resetMotionWarning}>重置运动风险提示</button>
           <button type="button" onClick={onClose}>取消</button>
           <button className="primary-action" disabled={saving}>{saving ? '保存中' : '保存'}</button>
         </div>
