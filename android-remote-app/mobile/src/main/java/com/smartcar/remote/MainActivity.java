@@ -93,6 +93,8 @@ public class MainActivity extends Activity {
     private boolean mockMode = false;
     private int sentCount = 0;
     private int heartbeatCount = 0;
+    private final android.os.Handler aiPollHandler = new android.os.Handler();
+    private Runnable aiPollRunnable;
     private int alarmCount = 0;
     private int connectionGeneration = 0;
     private String lastLogMessage = "等待连接...";
@@ -414,7 +416,6 @@ public class MainActivity extends Activity {
             detectionPreview = new DetectionPreview(this);
             auxiliaryContent.addView(detectionPreview, fixedHeight(dp(178)));
             LinearLayout visionActions = row();
-            visionActions.addView(actionButton("模拟检测", v -> triggerDemoDetection()), weighted());
             visionActions.addView(actionButton("清空告警", v -> clearAlarms()), weighted());
             auxiliaryContent.addView(visionActions, matchWrap());
             return;
@@ -573,6 +574,7 @@ public class MainActivity extends Activity {
                     addLog("连接成功");
                     advertiseCmdVel();
                     subscribeTelemetry();
+                    startAiPolling();
                     resetVelocity();
                     publishCurrentVelocity();
                     handler.removeCallbacks(heartbeat);
@@ -649,6 +651,7 @@ public class MainActivity extends Activity {
         connectButton.setText("连接");
         styleButton(connectButton, Color.rgb(20, 210, 255), Color.rgb(0, 83, 122), Color.WHITE);
         setControlsEnabled(false);
+        stopAiPolling();
         setStatus("已断开");
         refreshConnectionGuide();
         updateConnectionPanel();
@@ -769,7 +772,7 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        String url = "http://" + host + ":6500/video_feed";
+        String url = "http://" + host + ":6501/video_feed";
         if (videoWebView != null) {
             videoWebView.loadUrl(url);
         }
@@ -939,25 +942,65 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void triggerDemoDetection() {
-        alarmCount++;
-        if (detectionPreview != null) {
-            detectionPreview.setDetecting(true);
-        }
-        if (patrolMapView != null) {
-            patrolMapView.nextPoint();
-        }
-        lastAlarmMessage = "报警列表：\n"
-                + alarmCount + ". obstacle  置信度 0.86  区域 A-03  已记录\n"
-                + "处理建议：远程接管或现场确认";
-        if (alarmText != null) {
-            alarmText.setText(lastAlarmMessage);
-        }
-        addLog("AI 检测框：obstacle 0.86");
+    private void pollAiAlarms() {
+        if (host == null || host.isEmpty()) return;
+        new Thread(() -> {
+            try {
+                java.net.URL url = new java.net.URL("http://" + host + ":6501/api/alarms");
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(3000);
+                conn.setReadTimeout(3000);
+                java.io.InputStream is = conn.getInputStream();
+                java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
+                String body = s.hasNext() ? s.next() : "{}";
+                s.close();
+                conn.disconnect();
+                // simple JSON parse: extract counts and latest alarm
+                int personCount = extractInt(body, "person_detected");
+                int abnormalCount = extractInt(body, "abnormal_behavior");
+                int crackCount = extractInt(body, "cracked_tile");
+                String latestDanger = extractString(body, "danger_type");
+                String latestConf = extractString(body, "confidence");
+                runOnUiThread(() -> {
+                    if (detectionPreview != null) {
+                        detectionPreview.setDetecting(personCount > 0 || abnormalCount > 0 || crackCount > 0);
+                        detectionPreview.setAlarmInfo(personCount, abnormalCount, crackCount);
+                    }
+                    if (alarmText != null) {
+                        StringBuilder sb = new StringBuilder("实时告警：\n");
+                        sb.append("人员: ").append(personCount).append("  异常: ").append(abnormalCount).append("  裂缝: ").append(crackCount);
+                        if (personCount + abnormalCount + crackCount > 0) {
+                            sb.append("\n最新: ").append(latestDanger).append(" conf=").append(latestConf);
+                            lastAlarmMessage = "告警: " + latestDanger + " conf=" + latestConf;
+                        }
+                        alarmText.setText(sb.toString());
+                    }
+                });
+            } catch (Exception e) {
+                // silent - ai_web_bridge may not be running
+            }
+        }).start();
+    }
+
+    private int extractInt(String json, String key) {
+        int idx = json.indexOf("\"" + key + "\"");
+        if (idx < 0) return 0;
+        int colon = json.indexOf(":", idx);
+        if (colon < 0) return 0;
+        try { return Integer.parseInt(json.substring(colon + 1).replaceAll("[^0-9]", "")); }
+        catch (Exception e) { return 0; }
+    }
+
+    private String extractString(String json, String key) {
+        int idx = json.indexOf("\"" + key + "\"");
+        if (idx < 0) return "-";
+        int colon = json.indexOf("\"", json.indexOf(":", idx) + 1);
+        int end = json.indexOf("\"", colon + 1);
+        if (colon < 0 || end < 0) return "-";
+        return json.substring(colon + 1, end);
     }
 
     private void clearAlarms() {
-        alarmCount = 0;
         if (detectionPreview != null) {
             detectionPreview.setDetecting(false);
         }
@@ -966,6 +1009,24 @@ public class MainActivity extends Activity {
             alarmText.setText(lastAlarmMessage);
         }
         addLog("报警列表已清空");
+    }
+
+    private void startAiPolling() {
+        stopAiPolling();
+        aiPollRunnable = new Runnable() {
+            public void run() {
+                pollAiAlarms();
+                aiPollHandler.postDelayed(this, 3000);
+            }
+        };
+        aiPollHandler.post(aiPollRunnable);
+    }
+
+    private void stopAiPolling() {
+        if (aiPollRunnable != null) {
+            aiPollHandler.removeCallbacks(aiPollRunnable);
+            aiPollRunnable = null;
+        }
     }
 
     private void updateConnectionPanel() {
@@ -1152,6 +1213,9 @@ public class MainActivity extends Activity {
     private static final class DetectionPreview extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private boolean detecting = false;
+        private int personCount = 0;
+        private int abnormalCount = 0;
+        private int crackCount = 0;
 
         DetectionPreview(Context context) {
             super(context);
@@ -1159,6 +1223,14 @@ public class MainActivity extends Activity {
 
         void setDetecting(boolean detecting) {
             this.detecting = detecting;
+            invalidate();
+        }
+
+        void setAlarmInfo(int p, int a, int c) {
+            this.personCount = p;
+            this.abnormalCount = a;
+            this.crackCount = c;
+            this.detecting = (p + a + c) > 0;
             invalidate();
         }
 
@@ -1205,11 +1277,11 @@ public class MainActivity extends Activity {
                 canvas.drawRoundRect(new RectF(box.left, box.top - 34, box.left + 190, box.top), 8, 8, paint);
                 paint.setColor(Color.WHITE);
                 paint.setTextSize(22);
-                canvas.drawText("obstacle 0.86", box.left + 10, box.top - 10, paint);
+                canvas.drawText("人员=" + personCount + " 异常=" + abnormalCount + " 裂缝=" + crackCount, box.left + 10, box.top - 10, paint);
             } else {
                 paint.setColor(Color.rgb(95, 120, 140));
                 paint.setTextSize(22);
-                canvas.drawText("点击“模拟检测”生成 AI 检测框", 28, h - 28, paint);
+                canvas.drawText("等待AI检测数据...", 28, h - 28, paint);
             }
         }
     }
