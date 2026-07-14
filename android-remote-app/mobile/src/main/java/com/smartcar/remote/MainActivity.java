@@ -943,10 +943,11 @@ public class MainActivity extends Activity {
     }
 
     private void pollAiAlarms() {
-        if (host == null || host.isEmpty()) return;
+        String currentHost = hostInput == null ? "" : hostInput.getText().toString().trim();
+        if (currentHost.isEmpty()) return;
         new Thread(() -> {
             try {
-                java.net.URL url = new java.net.URL("http://" + host + ":6501/api/alarms");
+                java.net.URL url = new java.net.URL("http://" + currentHost + ":6501/api/alarms");
                 java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(3000);
                 conn.setReadTimeout(3000);
