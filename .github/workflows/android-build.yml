@@ -17,13 +17,18 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install Gradle
+      - name: Setup Android SDK
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq gradle
+          sudo apt-get update -qq
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
       - name: Build APK
         run: |
           cd android-remote-app
+          curl -L -o gradle-8.7-bin.zip https://services.gradle.org/distributions/gradle-8.7-bin.zip
+          unzip -q gradle-8.7-bin.zip
+          export GRADLE_HOME=$PWD/gradle-8.7
+          export PATH=$GRADLE_HOME/bin:$PATH
           gradle assembleDebug
 
       - name: Upload APK
