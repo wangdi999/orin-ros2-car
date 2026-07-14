@@ -4,6 +4,7 @@
 在推理结果图像上绘制检测框、标签和置信度：
   - 正常人员：绿色框 + 标签 + 置信度
   - 异常行为：红色高亮闪烁框 + "ABNORMAL" 标签
+  - 地砖裂缝：橙色框 + "crack" 标签
   - 通过 cv_bridge 转换为 ROS2 Image 消息
 """
 
@@ -14,10 +15,10 @@ from sensor_msgs.msg import Image
 
 
 # 颜色定义（BGR）
-COLOR_NORMAL = (0, 255, 0)       # 绿色 - 正常人员检测
-COLOR_ABNORMAL = (0, 0, 255)     # 红色 - 异常行为
-COLOR_ABNORMAL_FLASH = (0, 0, 255)   # 红色闪烁
-COLOR_ABNORMAL_DIM = (0, 0, 100)     # 暗红色（闪烁暗相）
+COLOR_NORMAL = (0, 255, 0)          # 绿色 - 正常人员检测
+COLOR_ABNORMAL = (0, 0, 255)        # 红色 - 异常行为
+COLOR_ABNORMAL_DIM = (0, 0, 100)    # 暗红色（闪烁暗相）
+COLOR_CRACK = (0, 165, 255)         # 橙色 - 地砖裂缝
 
 # 闪烁控制
 FLASH_INTERVAL_FRAMES = 5  # 每隔 N 帧切换亮/暗
@@ -41,7 +42,7 @@ class DetectionVisualizer:
         image: np.ndarray,
         bboxes: list,
         confidences: list,
-        is_abnormal_list: list,
+        danger_types: list,
     ) -> np.ndarray:
         """
         在图像上绘制所有检测结果。
@@ -50,7 +51,7 @@ class DetectionVisualizer:
             image: BGR 格式的原始图像 (H, W, 3)
             bboxes: 检测框列表 [(x1,y1,x2,y2), ...]
             confidences: 置信度列表 [float, ...]
-            is_abnormal_list: 异常行为标志列表 [bool, ...]
+            danger_types: 危险类型列表 ["person_detected"|"abnormal_behavior"|"cracked_tile", ...]
 
         Returns:
             叠加了检测框的 BGR 图像
@@ -63,20 +64,25 @@ class DetectionVisualizer:
         for i, bbox in enumerate(bboxes):
             x1, y1, x2, y2 = map(int, bbox)
             confidence = confidences[i] if i < len(confidences) else 0.0
-            is_abnormal = (
-                is_abnormal_list[i] if i < len(is_abnormal_list) else False
+            danger_type = (
+                danger_types[i] if i < len(danger_types) else "person_detected"
             )
 
-            if is_abnormal:
+            if danger_type == "cracked_tile":
+                # 地砖裂缝：橙色框
+                color = COLOR_CRACK
+                thickness = 2
+                label = "crack {:.2f}".format(confidence)
+            elif danger_type == "abnormal_behavior":
                 # 异常行为：红色闪烁框
                 color = COLOR_ABNORMAL if bright_phase else COLOR_ABNORMAL_DIM
                 thickness = 3
-                label = f"ABNORMAL {confidence:.2f}"
+                label = "ABNORMAL {:.2f}".format(confidence)
             else:
                 # 正常人员：绿色框
                 color = COLOR_NORMAL
                 thickness = 2
-                label = f"person {confidence:.2f}"
+                label = "person {:.2f}".format(confidence)
 
             # 绘制矩形框
             cv2.rectangle(result, (x1, y1), (x2, y2), color, thickness)

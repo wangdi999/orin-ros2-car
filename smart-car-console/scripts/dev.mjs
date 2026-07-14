@@ -26,6 +26,12 @@ function shutdown(exitCode, signal = 'SIGTERM') {
   if (children.size === 0) process.exit(requestedExitCode);
 }
 
+const host = process.env.SMART_CAR_HOST?.trim();
+if (host) {
+  process.env.VITE_SMART_CAR_HOST = host;
+  console.log(`小车IP: ${host}`);
+}
+
 function start(name, command, args) {
   const child = spawn(command, args, {
     stdio: 'inherit',

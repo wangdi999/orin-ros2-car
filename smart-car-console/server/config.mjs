@@ -8,7 +8,7 @@ const examplePath = path.join(rootDir, 'local-config.example.json');
 
 const defaults = {
   car: {
-    host: '192.168.160.196',
+    host: process.env.SMART_CAR_HOST || '192.168.160.196',
     sshUser: 'jetson',
     sshPassword: 'yahboom',
     sshHostKey: 'SHA256:AJffjk3YWwStux7ZbdKdft3teC8b7Jsubuvv4zMYuD8',
@@ -36,7 +36,8 @@ function mergeConfig(config) {
   return {
     car: {
       ...defaults.car,
-      ...(config?.car ?? {})
+      ...(config?.car ?? {}),
+      host: process.env.SMART_CAR_HOST || config?.car?.host || defaults.car.host,
     },
     control: {
       ...defaults.control,
