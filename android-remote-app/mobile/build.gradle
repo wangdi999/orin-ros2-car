@@ -1,0 +1,19 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.smartcar.remote"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.smartcar.remote"
+        minSdk 23
+        targetSdk 34
+        versionCode 7
+        versionName "0.1.6"
+    }
+}
+
+dependencies {
+}

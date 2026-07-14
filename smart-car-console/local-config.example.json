@@ -1,0 +1,15 @@
+{
+  "car": {
+    "host": "192.168.43.205",
+    "sshUser": "jetson",
+    "sshPassword": "",
+    "sshHostKey": "SHA256:AJffjk3YWwStux7ZbdKdft3teC8b7Jsubuvv4zMYuD8",
+    "plinkPath": "D:\\putty\\plink.exe"
+  },
+  "control": {
+    "maxLinearMps": 0.35,
+    "maxAngularRps": 1.2,
+    "deadZone": 0.05,
+    "watchdogMs": 450
+  }
+}
