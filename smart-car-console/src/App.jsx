@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keyboardVectorFromCodes, isDriveKeyCode } from './keyboardDrive.js';
 import AgentWorkspace from './AgentWorkspace.jsx';
+import { sameOriginWebSocketUrl } from './browserUrl.js';
 
 const emptyState = {
   runtime: {
@@ -19,6 +20,7 @@ const emptyState = {
         docker: false,
         container: null,
         chassis: false,
+        arbiter: false,
         lidar: false,
         camera: false,
         rosbridge: false,
@@ -106,11 +108,16 @@ export default function App() {
   const [keyboardActive, setKeyboardActive] = useState(false);
   const sendDriveRef = useRef({ lastSent: 0, pending: null });
   const pressedKeysRef = useRef(new Set());
+  const manualDriveActiveRef = useRef(false);
 
   const status = state.runtime.status;
   const telemetry = state.telemetry;
   const logs = state.runtime.logs;
   const canDrive = status.canDrive && connection === 'connected' && !busy;
+
+  useEffect(() => {
+    manualDriveActiveRef.current = Boolean(state.runtime.command.active);
+  }, [state.runtime.command.active]);
 
   const refreshStatus = useCallback(async () => {
     const response = await fetch('/api/status', { cache: 'no-store' });
@@ -122,9 +129,7 @@ export default function App() {
   useEffect(() => {
     let closed = false;
     refreshStatus().catch(() => setConnection('offline'));
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const port = window.location.port === '5173' ? '8787' : window.location.port;
-    const ws = new WebSocket(`${protocol}//${window.location.hostname}:${port}/api/telemetry`);
+    const ws = new WebSocket(sameOriginWebSocketUrl('/api/telemetry'));
     ws.onopen = () => setConnection('connected');
     ws.onclose = () => {
       if (!closed) setConnection('offline');
@@ -146,6 +151,7 @@ export default function App() {
 
   useEffect(() => {
     const stop = () => {
+      if (!manualDriveActiveRef.current) return;
       navigator.sendBeacon('/api/emergency-stop', new Blob(['{}'], { type: 'application/json' }));
     };
     window.addEventListener('blur', stop);

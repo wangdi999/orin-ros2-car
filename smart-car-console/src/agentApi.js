@@ -1,3 +1,5 @@
+import { sameOriginWebSocketUrl } from './browserUrl.js';
+
 const AGENT_PREFIX = '/api/agent';
 
 function errorMessage(payload, fallback) {
@@ -103,7 +105,5 @@ export const agentApi = {
 };
 
 export function agentEventsUrl() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const port = window.location.port === '5173' ? '8787' : window.location.port;
-  return `${protocol}//${window.location.hostname}:${port}/api/agent/events`;
+  return sameOriginWebSocketUrl('/api/agent/events');
 }

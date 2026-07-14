@@ -58,6 +58,7 @@ export class ServiceManager {
         docker: bool(fields.DOCKER_RUNNING),
         container: fields.CONTAINER_ID || null,
         chassis: bool(fields.SERVICE_CHASSIS),
+        arbiter: bool(fields.SERVICE_ARBITER),
         lidar: bool(fields.SERVICE_LIDAR),
         camera: bool(fields.SERVICE_CAMERA),
         rosbridge: bool(fields.SERVICE_ROSBRIDGE) || bool(fields.PORT_9090),
@@ -70,22 +71,17 @@ export class ServiceManager {
   }
 
   async startServices() {
-    addLog('info', 'services', 'Starting Jetson Docker, ROS nodes, rosbridge, and camera stream');
-    const result = await this.ssh.run(bash(remoteStartScript()), { timeoutMs: 20000 });
-    if (!result.ok) {
-      const summary = summarizeFailure(result);
-      addLog('error', 'services', `Start failed: ${summary}`, {
-        code: result.code,
-        stderr: tail(result.stderr)
-      });
-      await this.refreshStatus();
-      return { ok: false, error: summary, status: runtime.status };
+    addLog('info', 'services', 'Checking the existing car-side safe control stack');
+    const status = await this.refreshStatus();
+    if (!hasSafeControlStack(status)) {
+      const error = 'Safe car-side stack is incomplete; start it on the car before connecting';
+      addLog('error', 'services', error);
+      return { ok: false, error, status };
     }
-    runtime.startedByConsole = true;
-    addLog('info', 'services', 'Start commands accepted on Jetson');
-    await this.refreshStatus();
+    runtime.startedByConsole = false;
+    addLog('info', 'services', 'Reusing the existing safe control stack');
     this.rosbridge.connect();
-    return { ok: true, stdout: tail(result.stdout), status: runtime.status };
+    return { ok: true, reused: true, status: runtime.status };
   }
 
   async stopServices() {
@@ -148,6 +144,16 @@ function summarizeFailure(result) {
   return tail(result.stderr || result.stdout || `exit code ${result.code}`) || 'unknown error';
 }
 
+export function hasSafeControlStack(status) {
+  return Boolean(
+    status?.services?.docker
+    && status?.services?.chassis
+    && status?.services?.arbiter
+    && status?.services?.lidar
+    && status?.services?.rosbridge
+  );
+}
+
 function commonContainerLookup() {
   return `
 find_container() {
@@ -207,12 +213,13 @@ printf 'CONTAINER_ID=%s\\n' "$cid"
 if [ -n "$cid" ]; then
   printf 'DOCKER_RUNNING=1\\n'
   proc_table="$(docker exec "$cid" ps -ef 2>/dev/null || true)"
-  case "$proc_table" in *Mcnamu_driver_X3*) printf 'SERVICE_CHASSIS=1\\n' ;; *) printf 'SERVICE_CHASSIS=0\\n' ;; esac
+  case "$proc_table" in *Mcnamu_driver_X3*|*base_node_X3*|*driver_node*) printf 'SERVICE_CHASSIS=1\\n' ;; *) printf 'SERVICE_CHASSIS=0\\n' ;; esac
+  case "$proc_table" in *cmd_vel_arbiter*) printf 'SERVICE_ARBITER=1\\n' ;; *) printf 'SERVICE_ARBITER=0\\n' ;; esac
   case "$proc_table" in *sllidar_launch.py*|*sllidar_node*) printf 'SERVICE_LIDAR=1\\n' ;; *) printf 'SERVICE_LIDAR=0\\n' ;; esac
   case "$proc_table" in *astra.launch.xml*|*astra_camera*) printf 'SERVICE_CAMERA=1\\n' ;; *) printf 'SERVICE_CAMERA=0\\n' ;; esac
   case "$proc_table" in *rosbridge_websocket_launch.xml*|*rosbridge_websocket*) printf 'SERVICE_ROSBRIDGE=1\\n' ;; *) printf 'SERVICE_ROSBRIDGE=0\\n' ;; esac
 else
-  printf 'DOCKER_RUNNING=0\\nSERVICE_CHASSIS=0\\nSERVICE_LIDAR=0\\nSERVICE_CAMERA=0\\nSERVICE_ROSBRIDGE=0\\n'
+  printf 'DOCKER_RUNNING=0\\nSERVICE_CHASSIS=0\\nSERVICE_ARBITER=0\\nSERVICE_LIDAR=0\\nSERVICE_CAMERA=0\\nSERVICE_ROSBRIDGE=0\\n'
 fi
 proc_host '[s]martcar_mjpeg_video0.py|[R]osmaster-App/rosmaster/app.py|[p]ython3 app.py' && printf 'SERVICE_VIDEO=1\\n' || printf 'SERVICE_VIDEO=0\\n'
 `;
@@ -394,11 +401,11 @@ function remoteEmergencyStopScript() {
   return `
 set +e
 ${commonContainerLookup()}
-cid="$(find_container)"
-if [ -z "$cid" ]; then
-  echo 'No running icar container for fallback /cmd_vel publish' >&2
+  cid="$(find_container)"
+  if [ -z "$cid" ]; then
+  echo 'No running icar container for fallback manual stop' >&2
   exit 20
 fi
-docker exec "$cid" bash -lc "for setup in /opt/ros/foxy/setup.bash /root/icar_ros2_ws/icar_ws/install/setup.bash /root/icar_ros2_ws/software/library_ws/install/setup.bash /root/ros2_ws/install/setup.bash; do [ -f \\"\\$setup\\" ] && source \\"\\$setup\\"; done; timeout 3 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist ${twistYaml}"
+docker exec "$cid" bash -lc "for setup in /opt/ros/foxy/setup.bash /root/icar_ros2_ws/icar_ws/install/setup.bash /root/icar_ros2_ws/software/library_ws/install/setup.bash /root/ros2_ws/install/setup.bash; do [ -f \\"\\$setup\\" ] && source \\"\\$setup\\"; done; timeout 3 ros2 topic pub --once /cmd_vel_manual geometry_msgs/msg/Twist ${twistYaml}"
 `;
 }

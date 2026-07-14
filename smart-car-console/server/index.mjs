@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { bridgeAgentEvents, proxyAgentHttp } from './agentProxy.mjs';
+import { bridgeAgentEvents, proxyAgentHttp, requestAgentMotionStop } from './agentProxy.mjs';
 import { buildTwistFromDriveInput, isZeroTwist, ZERO_TWIST } from './control.mjs';
 import { getConfig, loadConfig, publicConfig, saveConfig } from './config.mjs';
 import { RosbridgeClient } from './rosbridge.mjs';
@@ -29,7 +29,7 @@ const ssh = new SshExecutor(getConfig, addLog);
 const serviceManager = new ServiceManager(ssh, rosbridge);
 
 rosbridge.on('disconnect', () => {
-  void emergencyStop('ROSBridge disconnected');
+  if (runtime.command.active) void emergencyStop('ROSBridge disconnected');
 });
 
 const server = http.createServer(async (req, res) => {
@@ -79,7 +79,7 @@ telemetryWss.on('connection', (ws) => {
   ws.on('close', () => {
     bus.off('snapshot', onSnapshot);
     bus.off('log', onLog);
-    void emergencyStop('Telemetry WebSocket disconnected');
+    if (runtime.command.active) void emergencyStop('Telemetry WebSocket disconnected');
   });
 });
 
@@ -152,13 +152,13 @@ async function handleApi(req, res, url) {
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/services/stop') {
-    await emergencyStop('Stop services requested');
+    await emergencyStop('Stop services requested', { force: true });
     const result = await serviceManager.stopServices();
     json(res, result.ok ? 200 : 500, { ...result, state: snapshot() });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/emergency-stop') {
-    const stopped = await emergencyStop('Emergency stop requested');
+    const stopped = await emergencyStop('Emergency stop requested', { force: true });
     json(res, stopped ? 200 : 503, { ok: stopped, state: snapshot() });
     return;
   }
@@ -166,6 +166,10 @@ async function handleApi(req, res, url) {
     const body = await readJson(req);
     const twist = buildTwistFromDriveInput(body, getConfig().control);
     if (isZeroTwist(twist)) {
+      if (!runtime.command.active) {
+        json(res, 200, { ok: true, twist: ZERO_TWIST, state: snapshot() });
+        return;
+      }
       await emergencyStop('Joystick released');
       json(res, 200, { ok: true, twist: ZERO_TWIST, state: snapshot() });
       return;
@@ -201,13 +205,21 @@ async function handleApi(req, res, url) {
   json(res, 404, { ok: false, error: 'Not found' });
 }
 
-async function emergencyStop(reason) {
+async function emergencyStop(reason, { force = false } = {}) {
+  const manualDriveWasActive = runtime.command.active;
   markEmergencyStop(reason);
-  const sentOverRosbridge = rosbridge.emergencyStop();
-  if (!sentOverRosbridge) {
-    const fallbackOk = await serviceManager.emergencyStopFallback(reason);
-    return fallbackOk;
+  if (!force && !manualDriveWasActive) return true;
+
+  try {
+    await requestAgentMotionStop(getConfig(), reason);
+    addLog('warn', 'safety', `${reason}; stop sent through Agent gateway`);
+    return true;
+  } catch (error) {
+    addLog('warn', 'safety', `Agent stop failed: ${error.message}`);
   }
+
+  const sentOverRosbridge = manualDriveWasActive && rosbridge.emergencyStop();
+  if (!sentOverRosbridge) return serviceManager.emergencyStopFallback(reason);
   addLog('warn', 'safety', reason);
   return true;
 }

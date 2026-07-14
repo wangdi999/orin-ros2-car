@@ -71,6 +71,66 @@ export function proxyAgentHttp(req, res, url, getConfig, addLog) {
   req.pipe(upstream);
 }
 
+export function buildAgentMotionStopRequest(config, reason) {
+  const target = buildAgentTarget(config, '/api/agent/agent/motion/execute');
+  return {
+    ...target,
+    body: {
+      intent: {
+        action: 'STOP',
+        reason: String(reason || 'Web console stop requested').slice(0, 300)
+      },
+      source_text: String(reason || 'Web console stop requested').slice(0, 500),
+      confirmed: true,
+      operator: 'web-console'
+    }
+  };
+}
+
+export function requestAgentMotionStop(config, reason) {
+  const target = buildAgentMotionStopRequest(config, reason);
+  if (!target.token) return Promise.reject(new Error('Agent token is not configured'));
+  const body = JSON.stringify(target.body);
+
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        hostname: target.host,
+        port: target.port,
+        path: target.path,
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${target.token}`,
+          'content-type': 'application/json; charset=utf-8',
+          'content-length': Buffer.byteLength(body)
+        },
+        timeout: target.timeoutMs
+      },
+      (response) => {
+        let responseBody = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          responseBody += chunk;
+        });
+        response.on('end', () => {
+          if ((response.statusCode ?? 500) >= 400) {
+            reject(new Error(`Agent stop failed with HTTP ${response.statusCode}: ${responseBody}`));
+            return;
+          }
+          try {
+            resolve(responseBody ? JSON.parse(responseBody) : {});
+          } catch (error) {
+            reject(new Error(`Agent stop returned invalid JSON: ${error.message}`));
+          }
+        });
+      }
+    );
+    request.on('timeout', () => request.destroy(new Error('Agent stop request timed out')));
+    request.on('error', reject);
+    request.end(body);
+  });
+}
+
 export function bridgeAgentEvents(client, getConfig, addLog) {
   const config = getConfig();
   const host = config.agent.host || config.car.host;

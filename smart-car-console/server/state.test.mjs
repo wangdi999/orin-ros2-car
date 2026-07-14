@@ -12,6 +12,7 @@ function setRequiredDriveState() {
   };
   runtime.status.services = {
     chassis: true,
+    arbiter: true,
     lidar: true,
     camera: false,
     video: true,
