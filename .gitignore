@@ -12,15 +12,64 @@ build/
 *.so
 .env
 .env.*
+!agent-runtime/.env.example
 .tmp/
 tmp/
+.idea/
+.workbuddy/
 .remote-check/
 .ros2-navigation-staging/
 artifacts/navigation/raw/
 artifacts/navigation/*.png
 smart-car-console/output/
 
+wddocs/
 smart-car-console/local-config.json
+.jetson_pw
+check_jetson.py
+check_jetson2.py
+check_ros2_avail.py
+install_ros2_jetson.py
+deploy_*.py
 smart-car-console/node_modules/
 smart-car-console/dist/
 smart-car-console/logs/
+smart-car-console/.npm-cache/
+
+# Local AI model weights and exports
+*.pt
+*.onnx
+!smart_car_ws/models/.gitkeep
+
+# Android remote app local/build files
+android-remote-app/.gradle/
+android-remote-app/.idea/
+android-remote-app/build/
+android-remote-app/mobile/build/
+android-remote-app/local.properties
+android-remote-app/**/local.properties
+
+# Python / Agent Runtime
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+agent-runtime/data/*.db
+agent-runtime/data/*.db-*
+agent-runtime/uv.lock
+agent-runtime/data/images/*
+agent-runtime/data/reports/*
+!agent-runtime/data/images/.gitkeep
+!agent-runtime/data/reports/.gitkeep
+
+# ROS2 workspaces
+ros2_agent_ws/build/
+ros2_agent_ws/install/
+ros2_agent_ws/log/
+
+# Mobile APP (separate repo)
+smart-car-app/
+
+# Local deployment tools and keys
+.tools/

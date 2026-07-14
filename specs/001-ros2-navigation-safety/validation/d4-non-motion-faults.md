@@ -1,7 +1,7 @@
 # D4 Non-motion Fault Validation
 
 **Status**: PARTIAL PASS — all zero-only/process checks passed; physical serial recovery remains open
-**Target**: `192.168.160.196`
+**Target**: runtime-configured vehicle endpoint
 **Release**: `20260713T112841Z`
 **Safety scope**: zero-Twist and process-fault checks only; no navigation goal, patrol, return-home request, simulated low-battery request, or non-zero motion command
 

@@ -8,11 +8,12 @@ const examplePath = path.join(rootDir, 'local-config.example.json');
 
 const defaults = {
   car: {
-    host: '192.168.43.137',
+    host: process.env.SMART_CAR_HOST || '',
     sshUser: 'jetson',
     sshPassword: '',
-    sshHostKey: 'SHA256:AJffjk3YWwStux7ZbdKdft3teC8b7Jsubuvv4zMYuD8',
-    plinkPath: 'D:\\putty\\plink.exe'
+    sshHostKey: '',
+    plinkPath: 'C:\\Program Files\\PuTTY\\plink.exe',
+    sshPrivateKey: ''
   },
   control: {
     maxLinearMps: 0.5,
@@ -20,6 +21,7 @@ const defaults = {
     turnScale: -1,
     deadZone: 0.05,
     watchdogMs: 500,
+    commandTopic: '/cmd_vel_manual',
     heartbeatProtectionEnabled: true,
     straightAssist: {
       enabled: true,
@@ -50,6 +52,12 @@ const defaults = {
   },
   safety: {
     motionWarningAcknowledgedAt: null
+  },
+  agent: {
+    host: '',
+    port: 8100,
+    token: '',
+    requestTimeoutMs: 20000
   }
 };
 
@@ -86,6 +94,7 @@ function normalizeControlConfig(control = {}) {
     maxAngularRps: clampNumber(merged.maxAngularRps, 0.05, controlSafetyCeiling.maxAngularRps, defaults.control.maxAngularRps),
     deadZone: clampNumber(merged.deadZone, 0, 0.5, defaults.control.deadZone),
     watchdogMs: controlSafetyCeiling.watchdogMs,
+    commandTopic: '/cmd_vel_manual',
     heartbeatProtectionEnabled: merged.heartbeatProtectionEnabled !== false,
     straightAssist: {
       ...merged.straightAssist,
@@ -108,7 +117,8 @@ function mergeConfig(config) {
   return {
     car: {
       ...defaults.car,
-      ...(config?.car ?? {})
+      ...(config?.car ?? {}),
+      host: process.env.SMART_CAR_HOST || config?.car?.host || defaults.car.host,
     },
     control: normalizeControlConfig(config?.control),
     video: {
@@ -138,6 +148,10 @@ function mergeConfig(config) {
       motionWarningAcknowledgedAt: typeof config?.safety?.motionWarningAcknowledgedAt === 'string'
         ? config.safety.motionWarningAcknowledgedAt
         : null
+    },
+    agent: {
+      ...defaults.agent,
+      ...(config?.agent ?? {})
     }
   };
 }
@@ -171,7 +185,8 @@ export function publicConfig() {
       sshUser: config.car.sshUser,
       sshPasswordSet: Boolean(config.car.sshPassword),
       sshHostKeySet: Boolean(config.car.sshHostKey),
-      plinkConfigured: Boolean(config.car.plinkPath)
+      plinkConfigured: Boolean(config.car.plinkPath),
+      sshPrivateKeySet: Boolean(config.car.sshPrivateKey)
     },
     control: config.control,
     video: config.video,
@@ -179,6 +194,12 @@ export function publicConfig() {
     safety: {
       motionWarningAcknowledged: Boolean(config.safety?.motionWarningAcknowledgedAt),
       motionWarningAcknowledgedAt: config.safety?.motionWarningAcknowledgedAt ?? null
+    },
+    agent: {
+      host: config.agent.host,
+      port: config.agent.port,
+      tokenSet: Boolean(config.agent.token),
+      requestTimeoutMs: config.agent.requestTimeoutMs
     }
   };
 }
@@ -191,6 +212,20 @@ export function mergeApiConfig(current, body = {}) {
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(sshUser)) throw invalidApiConfig('Invalid SSH user');
   const requestedPassword = typeof requestedCar.sshPassword === 'string' ? requestedCar.sshPassword : '';
   if (requestedPassword.length > 512) throw invalidApiConfig('SSH password is too long');
+  const requestedAgent = body?.agent && typeof body.agent === 'object' ? body.agent : {};
+  const agentHost = String(requestedAgent.host ?? current.agent?.host ?? '').trim();
+  if (agentHost && !/^[A-Za-z0-9.-]{1,253}$/.test(agentHost)) {
+    throw invalidApiConfig('Invalid agent host');
+  }
+  const agentPort = clampNumber(requestedAgent.port, 1, 65535, current.agent?.port ?? defaults.agent.port);
+  const requestTimeoutMs = clampNumber(
+    requestedAgent.requestTimeoutMs,
+    1000,
+    120000,
+    current.agent?.requestTimeoutMs ?? defaults.agent.requestTimeoutMs
+  );
+  const requestedToken = typeof requestedAgent.token === 'string' ? requestedAgent.token : '';
+  if (requestedToken.length > 4096) throw invalidApiConfig('Agent token is too long');
   return {
     car: {
       ...current.car,
@@ -201,7 +236,14 @@ export function mergeApiConfig(current, body = {}) {
     control: { ...current.control, ...(body?.control ?? {}) },
     video: { ...current.video, ...(body?.video ?? {}) },
     navigation: { ...current.navigation, ...(body?.navigation ?? {}) },
-    safety: { ...current.safety }
+    safety: { ...current.safety },
+    agent: {
+      ...current.agent,
+      host: agentHost,
+      port: agentPort,
+      token: requestedToken || current.agent?.token || '',
+      requestTimeoutMs
+    }
   };
 }
 

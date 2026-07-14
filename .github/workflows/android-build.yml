@@ -1,0 +1,36 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, member-b]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35'
+
+      - name: Build APK
+        run: |
+          cd android-remote-app
+          curl -sL -o gradle-8.7-bin.zip https://services.gradle.org/distributions/gradle-8.7-bin.zip
+          unzip -q gradle-8.7-bin.zip
+          $PWD/gradle-8.7/bin/gradle assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-car-remote
+          path: android-remote-app/mobile/build/outputs/apk/debug/*.apk

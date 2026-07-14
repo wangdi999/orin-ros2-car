@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+from typing import Literal
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    agent_token: str = Field(default="", alias="CAR_AGENT_TOKEN")
+    agent_host: str = Field(default="0.0.0.0", alias="CAR_AGENT_HOST")
+    agent_port: int = Field(default=8100, alias="CAR_AGENT_PORT")
+    database_path: Path = Field(default=Path("data/agent.db"), alias="CAR_AGENT_DATABASE_PATH")
+    checkpoint_path: Path = Field(
+        default=Path("data/langgraph_checkpoints.db"),
+        alias="CAR_AGENT_CHECKPOINT_PATH",
+    )
+    locations_path: Path = Field(
+        default=Path("config/locations.yaml"),
+        alias="CAR_AGENT_LOCATIONS_PATH",
+    )
+    policies_path: Path = Field(
+        default=Path("config/policies.yaml"),
+        alias="CAR_AGENT_POLICIES_PATH",
+    )
+    gateway_mode: Literal["mock", "http_rosbridge", "rosbridge"] = Field(
+        default="mock",
+        alias="CAR_AGENT_GATEWAY_MODE",
+    )
+    ros_gateway_base_url: str = Field(
+        default="http://127.0.0.1:8130",
+        alias="ROS_GATEWAY_BASE_URL",
+    )
+    ros_gateway_timeout_sec: float = Field(default=3.0, alias="ROS_GATEWAY_TIMEOUT_SEC")
+    motion_max_distance_m: float = Field(
+        default=0.30,
+        gt=0,
+        alias="CAR_AGENT_MOTION_MAX_DISTANCE_M",
+    )
+    motion_max_speed_mps: float = Field(
+        default=0.08,
+        gt=0,
+        alias="CAR_AGENT_MOTION_MAX_SPEED_MPS",
+    )
+    motion_max_duration_sec: float = Field(
+        default=8.0,
+        gt=0,
+        alias="CAR_AGENT_MOTION_MAX_DURATION_SEC",
+    )
+
+    llm_provider: Literal["mock", "openai_compatible"] = Field(
+        default="mock",
+        alias="LLM_PROVIDER",
+    )
+    llm_base_url: str = Field(default="", alias="LLM_BASE_URL")
+    llm_model: str = Field(default="", alias="LLM_MODEL")
+    llm_api_key: str = Field(default="", alias="LLM_API_KEY")
+    llm_timeout_sec: float = Field(default=15.0, alias="LLM_TIMEOUT_SEC")
+
+    tts_enabled: bool = Field(default=False, alias="TTS_ENABLED")
+    tts_bridge_url: str = Field(default="http://127.0.0.1:8123/speak", alias="TTS_BRIDGE_URL")
+    tts_timeout_sec: float = Field(default=2.0, alias="TTS_TIMEOUT_SEC")
+
+    asr_enabled: bool = Field(default=False, alias="ASR_ENABLED")
+    asr_base_url: str = Field(default="", alias="ASR_BASE_URL")
+    asr_model: str = Field(default="mimo-v2.5-asr", alias="ASR_MODEL")
+    asr_api_key: str = Field(default="", alias="ASR_API_KEY")
+    asr_timeout_sec: float = Field(default=30.0, alias="ASR_TIMEOUT_SEC")
+
+    cors_origins: str = Field(default="http://127.0.0.1:5173", alias="CAR_AGENT_CORS_ORIGINS")
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
+
+    def ensure_data_directories(self) -> None:
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    settings = Settings()
+    settings.ensure_data_directories()
+    return settings

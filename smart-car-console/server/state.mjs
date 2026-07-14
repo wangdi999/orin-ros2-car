@@ -336,6 +336,7 @@ export const runtime = {
       docker: false,
       container: null,
       chassis: false,
+      arbiter: false,
       lidar: false,
       camera: false,
       rosbridge: false,
@@ -627,6 +628,7 @@ export function recomputeCanDrive() {
 
   if (!devices.chassisSerial) blockers.push('Chassis serial device is missing');
   if (devices.chassisSerial && !services.chassis) blockers.push('Chassis driver is not running');
+  if (!services.arbiter) blockers.push('Safe command arbiter is not running');
   if (!devices.lidar) blockers.push('RPLidar device is missing');
   if (devices.lidar && !services.lidar) blockers.push('Lidar driver is not running');
   if (!cameraDeviceAvailable) blockers.push('Camera device is missing');

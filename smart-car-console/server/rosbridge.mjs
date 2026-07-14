@@ -65,6 +65,12 @@ export class RosbridgeClient extends EventEmitter {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
+    const host = String(this.getConfig()?.car?.host || '').trim();
+    if (!host) {
+      updateRosbridge({ connected: false, url: null, lastError: 'Car host is not configured' });
+      addLog('warn', 'rosbridge', 'Car host is not configured; ROSBridge connection is disabled');
+      return;
+    }
     this.manualClose = false;
     updateRosbridge({ url: this.url, lastError: null });
     const ws = new WebSocket(this.url, { handshakeTimeout: 2500 });

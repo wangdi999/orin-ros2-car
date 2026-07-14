@@ -1,7 +1,7 @@
 # Baseline: ROS2 Navigation Safety
 
 **Recorded**: 2026-07-12
-**Current vehicle endpoint (updated by user)**: `192.168.43.137`
+**Current vehicle endpoint**: supplied at runtime from ignored local configuration
 **Safety boundary**: no non-zero command or navigation goal was sent while recording this baseline.
 
 ## Repository state before Spec Kit initialization
@@ -42,7 +42,7 @@ Result: **36/36 tests passed**. The initial sandbox run was blocked by Windows p
 
 ## Read-only vehicle baseline
 
-Observed on an earlier endpoint before the user supplied the current `192.168.160.196`; all facts must be rechecked at the current endpoint before deployment:
+Observed on an earlier runtime endpoint; all facts must be rechecked at the current configured endpoint before deployment:
 
 - ROS distribution: Foxy.
 - Running functional nodes: chassis driver, SLLIDAR and rosbridge; no odometry, map or TF owner.
@@ -63,4 +63,4 @@ Observed on an earlier endpoint before the user supplied the current `192.168.16
 - Existing user changes preserved: **PASS**
 - Console 36/36 baseline: **PASS**
 - Physical movement during baseline: **NONE**
-- New endpoint `192.168.160.196` SSH/runtime recheck: **PASS** (T033/T034; no non-zero command sent)
+- Updated runtime endpoint SSH/runtime recheck: **PASS** (T033/T034; no non-zero command sent)

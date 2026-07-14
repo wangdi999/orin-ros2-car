@@ -1,6 +1,6 @@
 # Quickstart: ROS2 核心与导航四天闭环
 
-本指南把验证分为三类：本地无硬件、车端非运动/零速度、经用户批准后的实车运动。当前车端地址为 `192.168.43.137`；不要把密码、host key 或 `local-config.json` 写入命令记录。
+本指南把验证分为三类：本地无硬件、车端非运动/零速度、经用户批准后的实车运动。车端地址从本地配置读取；不要把密码、host key 或 `local-config.json` 写入命令记录。
 
 > **测试已恢复（2026-07-13）**：用户已授权本地测试以及车端构建、只读、非运动和显式零速度检查。任何非零 Twist、Nav2 goal、巡航、返航、模拟低电返航或建图遥控仍须另行汇报，并等待用户明确确认轮子架空或场地已清空。
 
@@ -38,16 +38,17 @@ python -m pytest ros2_car_remote_ws\src\icar_bringup\test\test_driver_safety.py 
 ## 2. Connectivity and target runtime checks (non-motion)
 
 ```powershell
-Test-NetConnection 192.168.43.137 -Port 22
-Test-NetConnection 192.168.43.137 -Port 9090
-Test-NetConnection 192.168.43.137 -Port 5900
+$CarIp = (Get-Content .\smart-car-console\local-config.json -Raw | ConvertFrom-Json).car.host
+Test-NetConnection $CarIp -Port 22
+Test-NetConnection $CarIp -Port 9090
+Test-NetConnection $CarIp -Port 5900
 ```
 
 Read-only target checks:
 
 ```powershell
-ssh jetson@192.168.43.137 "docker ps --format '{{.Names}} {{.Status}}'"
-ssh jetson@192.168.43.137 "docker exec smartcar_icar_console bash -lc 'source /opt/ros/foxy/setup.bash && printenv ROS_DISTRO && ros2 pkg list | grep -E \"^(cartographer_ros|nav2_bringup|nav2_amcl|robot_localization)$\"'"
+ssh "jetson@$CarIp" "docker ps --format '{{.Names}} {{.Status}}'"
+ssh "jetson@$CarIp" "docker exec smartcar_icar_console bash -lc 'source /opt/ros/foxy/setup.bash && printenv ROS_DISTRO && ros2 pkg list | grep -E \"^(cartographer_ros|nav2_bringup|nav2_amcl|robot_localization)$\"'"
 ```
 
 车端 ROS 节点统一运行在容器 loopback DDS 图谱中；在容器里手工执行 `ros2` 检查前先设置 `ROS_LOCALHOST_ONLY=1`，并将 `FASTRTPS_DEFAULT_PROFILES_FILE` 指向已安装的 `config/fastdds_localhost.xml`。该 profile 把 UDPv4 限定到 `127.0.0.1` 并把 initial-peer range 扩为 64。Windows 控制台仍通过外部 `ws://<car-ip>:9090` 连接 rosbridge，不直接加入 DDS。
@@ -58,8 +59,8 @@ The deployment script copies only the four scoped ROS packages into an immutable
 
 ```powershell
 Set-Location D:\code\project\smart-car-remote-control-20260707
-.\scripts\deploy_ros2_navigation.ps1 -CarIp 192.168.43.137 -DryRun
-.\scripts\deploy_ros2_navigation.ps1 -CarIp 192.168.43.137 -UseConsoleConfig
+.\scripts\deploy_ros2_navigation.ps1 -CarIp $CarIp -DryRun
+.\scripts\deploy_ros2_navigation.ps1 -CarIp $CarIp -UseConsoleConfig
 ```
 
 `-UseConsoleConfig` reads the ignored `smart-car-console/local-config.json` only at runtime and redacts both password and host key from command display. Omit it when OpenSSH key authentication is configured.
@@ -213,7 +214,7 @@ Verify cancellation, Home return and stop. Separately test an unreachable Home a
 
 ```powershell
 Set-Location D:\code\project\smart-car-remote-control-20260707
-.\scripts\collect_navigation_evidence.ps1 -CarIp 192.168.43.137 -Gate d1 -UseConsoleConfig
+.\scripts\collect_navigation_evidence.ps1 -CarIp $CarIp -Gate d1 -UseConsoleConfig
 ```
 
 Store raw output under `artifacts/navigation/raw/` (ignored). Commit only concise, scrubbed acceptance summaries and generated map artifacts approved for version control. The collector is read-only and never marks a gate PASS by itself.

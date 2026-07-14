@@ -3,6 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
+import { bridgeAgentEvents, proxyAgentHttp, requestAgentMotionStop } from './agentProxy.mjs';
 import { AlarmManager } from './alarmManager.mjs';
 import { CapabilityManager } from './capabilityRegistry.mjs';
 import { buildDriveCommand, isZeroTwist, ZERO_TWIST } from './control.mjs';
@@ -127,17 +128,28 @@ const server = http.createServer(async (req, res) => {
 });
 
 const telemetryWss = new WebSocketServer({ noServer: true });
+const agentEventsWss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '/', 'http://127.0.0.1');
   const trust = validateLocalRequest(req.headers);
-  if (url.pathname !== '/api/telemetry' || !trust.ok) {
+  if (!trust.ok) {
     socket.destroy();
     return;
   }
-  telemetryWss.handleUpgrade(req, socket, head, (ws) => {
-    telemetryWss.emit('connection', ws, req);
-  });
+  if (url.pathname === '/api/telemetry') {
+    telemetryWss.handleUpgrade(req, socket, head, (ws) => {
+      telemetryWss.emit('connection', ws, req);
+    });
+    return;
+  }
+  if (url.pathname === '/api/agent/events') {
+    agentEventsWss.handleUpgrade(req, socket, head, (ws) => {
+      agentEventsWss.emit('connection', ws, req);
+    });
+    return;
+  }
+  socket.destroy();
 });
 
 telemetryWss.on('connection', (ws) => {
@@ -181,6 +193,10 @@ telemetryWss.on('connection', (ws) => {
     configureHeartbeat(heartbeatPayload());
     addLog('warn', 'safety', 'Telemetry WebSocket disconnected; heartbeat protection disabled for testing');
   });
+});
+
+agentEventsWss.on('connection', (ws) => {
+  bridgeAgentEvents(ws, getConfig, addLog);
 });
 
 server.listen(apiPort, '127.0.0.1', () => {
@@ -332,6 +348,10 @@ async function handleApi(req, res, url) {
     json(res, 200, response('MOTION_WARNING_RESET', 'Motion warning acknowledgement reset', { result, config: publicConfig(), state: snapshot() }));
     return;
   }
+  if (url.pathname === '/api/agent/health' || url.pathname.startsWith('/api/agent/')) {
+    proxyAgentHttp(req, res, url, getConfig, addLog);
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/api/config') {
     json(res, 200, { ok: true, config: publicConfig() });
     return;
@@ -471,13 +491,13 @@ async function handleApi(req, res, url) {
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/services/stop') {
-    await emergencyStop('Stop services requested');
+    await emergencyStop('Stop services requested', { force: true });
     const result = await serviceManager.stopServices();
     json(res, result.ok ? 200 : 500, { ...result, state: snapshot() });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/emergency-stop') {
-    const stopped = await emergencyStop('Emergency stop requested');
+    const stopped = await emergencyStop('Emergency stop requested', { force: true });
     json(res, stopped ? 200 : 503, { ok: stopped, state: snapshot() });
     return;
   }
@@ -556,6 +576,18 @@ async function handleApi(req, res, url) {
     proxyVideo(req, res);
     return;
   }
+  if (req.method === 'GET' && url.pathname === '/api/ai-video') {
+    proxyAiVideo(req, res);
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/ai-alarms') {
+    proxyAiJson(req, res, '/api/alarms');
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/ai-perf') {
+    proxyAiJson(req, res, '/api/perf');
+    return;
+  }
   json(res, 404, { ok: false, error: 'Not found' });
 }
 
@@ -578,7 +610,8 @@ async function downloadRecording(res, id) {
   }
 }
 
-async function emergencyStop(reason) {
+async function emergencyStop(reason, { force = false } = {}) {
+  const manualDriveWasActive = runtime.command.active;
   markEmergencyStop(reason);
   alarmManager.raise({
     source: 'safety',
@@ -588,10 +621,22 @@ async function emergencyStop(reason) {
     message: reason,
     dedupeKey: 'safety:emergency_stop'
   });
+
+  let agentStopped = false;
+  try {
+    await requestAgentMotionStop(getConfig(), reason);
+    addLog('warn', 'safety', `${reason}; stop sent through Agent gateway`);
+    agentStopped = true;
+  } catch (error) {
+    addLog('warn', 'safety', `Agent stop failed: ${error.message}`);
+  }
+
+  if (!force && !manualDriveWasActive && agentStopped) return true;
+
   const sentOverRosbridge = rosbridge.emergencyStop();
   if (!sentOverRosbridge) {
     const fallbackOk = await serviceManager.emergencyStopFallback(reason);
-    return fallbackOk;
+    return agentStopped || fallbackOk;
   }
   addLog('warn', 'safety', reason);
   return true;
@@ -730,4 +775,44 @@ function response(code, message, fields = {}) {
     blockers: fields.blockers || [],
     ...fields
   };
+}
+
+function proxyAiVideo(req, res) {
+  const url = `http://${getConfig().car.host}:6501/video_feed`;
+  const upstream = http.get(url, { timeout: 10000 }, (upstreamRes) => {
+    res.writeHead(upstreamRes.statusCode ?? 200, {
+      'content-type': upstreamRes.headers['content-type'] ?? 'multipart/x-mixed-replace; boundary=frame',
+      'cache-control': 'no-store'
+    });
+    upstreamRes.pipe(res);
+  });
+  upstream.on('error', (error) => {
+    addLog('warn', 'ai-video', `AI video proxy failed: ${error.message}`);
+    if (!res.headersSent) json(res, 502, { ok: false, error: error.message });
+    else res.end();
+  });
+  req.on('close', () => upstream.destroy());
+}
+
+function proxyAiJson(req, res, path) {
+  const url = `http://${getConfig().car.host}:6501${path}`;
+  const upstream = http.get(url, { timeout: 10000 }, (upstreamRes) => {
+    let body = '';
+    upstreamRes.on('data', (chunk) => { body += chunk.toString('utf8'); });
+    upstreamRes.on('end', () => {
+      const status = upstreamRes.statusCode ?? 200;
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(body);
+    });
+  });
+  upstream.on('timeout', () => {
+    upstream.destroy();
+    addLog('warn', 'ai-api', `AI API timeout: ${path}`);
+    json(res, 504, { ok: false, error: 'Upstream timeout' });
+  });
+  upstream.on('error', (error) => {
+    addLog('warn', 'ai-api', `AI API proxy failed: ${error.message}`);
+    if (!res.headersSent) json(res, 502, { ok: false, error: error.message });
+    else res.end();
+  });
 }

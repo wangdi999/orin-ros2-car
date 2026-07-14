@@ -4,7 +4,7 @@
 **Test policy**: 运动、安全、TF、导航和故障处理任务必须包含自动化或可复核测试。只有已执行并有证据的任务可标为 `[X]`。
 **Physical marker**: `[MOTION-GATE]` 表示会导致或可能导致小车移动，执行前必须得到用户明确批准；每项结束发送零 Twist。
 
-**2026-07-13 execution note**: 用户已恢复本地和车端非运动测试；当前目标地址由 `local-config.json` 或运行参数决定（现为 `192.168.43.137`）。`[MOTION-GATE]` 仍须逐项取得明确批准；只有已执行并留有证据的任务才标记 `[X]`。
+**2026-07-13 execution note**: 用户已恢复本地和车端非运动测试；当前目标地址由 `local-config.json` 或运行参数决定。`[MOTION-GATE]` 仍须逐项取得明确批准；只有已执行并留有证据的任务才标记 `[X]`。
 
 ## Phase 1: Setup and Baseline Preservation
 
@@ -67,7 +67,7 @@
 - [X] T030 [US1] 将 `smart-car-console/server/rosbridge.mjs` 的人工发布改为 `/cmd_vel_manual`，并实现 `/safety/estop`、`/safety/reset` 调用与零-only SSH fallback
 - [X] T031 [US1] 最小更新 `smart-car-console/server/{index.mjs,serviceManager.mjs,state.mjs}` 和 `src/App.jsx`，展示活动来源/安全状态并提供急停与复位结果，不重构页面
 - [X] T032 [US1] 执行本机 US1 测试、完整 `npm test` 与 `npm run build`，把结果写入 `specs/001-ros2-navigation-safety/validation/d1-software.md`
-- [X] T033 [US1] 使用 `192.168.160.196` 在 Foxy staging overlay 构建/test 四个相关包，并记录 Alarm/NavigateToPose 接口到 `specs/001-ros2-navigation-safety/validation/d1-foxy.md`
+- [X] T033 [US1] 使用当时的运行时车端地址在 Foxy staging overlay 构建/test 四个相关包，并记录 Alarm/NavigateToPose 接口到 `specs/001-ros2-navigation-safety/validation/d1-foxy.md`
 - [X] T034 [US1] 在车端只启动 safe base，不发送非零命令，验证 `/scan ≥5 Hz`、`/odom ≥20 Hz`、laser frame、TF 完整唯一、单一 `/cmd_vel` 和零终态，记录到 `validation/d1-non-motion.md`
 - [ ] T035 [US1] **[MOTION-GATE]** 经批准以 `0.05/0.20` 完成人工短脉冲、300 ms timeout、来源切换、急停、SIGTERM 和串口拔插停车/恢复，每项发零并记录停止延迟到 `validation/d1-motion.md`
 - [ ] T036 [US1] 汇总 D1 门禁；只有 T032-T035 全部 PASS 才在 `validation/d1-gate.md` 标记 D1 通过
@@ -117,7 +117,7 @@
 - [X] T048 [US3] 在 `ros2_car_remote_ws/src/icar_navigation/config/nav2_foxy.yaml` 配置 AMCL、Map Server、NavFn、DWB、costmaps、footprint、速度和 goal checker
 - [X] T049 [US3] 在 `ros2_car_remote_ws/src/icar_navigation/launch/navigation.launch.py` 编排 safe base、Map Server、AMCL、Nav2 servers，并将 controller 输出 remap 到 `/cmd_vel_nav`
 - [X] T050 [P] [US3] 在 `ros2_car_remote_ws/src/icar_navigation/scripts/verify_navigation.sh` 实现只读插件、action、topic owner 和 TF 门禁检查
-- [X] T051 [US3] 使用 `192.168.160.196` 车端启动 navigation 但不设置 goal，验证 AMCL/Nav2 存在、Cartographer 缺席、唯一 `map→odom` 和速度 remap，记录到 `validation/d3-non-motion.md`
+- [X] T051 [US3] 使用当时的运行时车端地址启动 navigation 但不设置 goal，验证 AMCL/Nav2 存在、Cartographer 缺席、唯一 `map→odom` 和速度 remap，记录到 `validation/d3-non-motion.md`
 - [ ] T052 [US3] **[MOTION-GATE]** D2 通过后以批准限速设置初始位姿并执行一个可达目标，测量位置/朝向误差与取消停车，记录到 `validation/d3-single-goal.md`
 
 ---
@@ -164,7 +164,7 @@
 - [X] T067 [US5] 完成 `patrol_manager.py` 对 `LOW_BATTERY_RETURN` 的取消/返航协作、活动期 10 Hz `RETURN_HOME` 授权心跳、成功后保持停止和失败高严重度告警
 - [X] T068 [US5] 在 `ros2_car_remote_ws/src/icar_navigation/launch/demo.launch.py` 组合已验收 navigation/route，保持 `enable_real_low_battery=false`
 - [X] T069 [US5] 在 `scripts/collect_navigation_evidence.ps1` 实现脱敏 topic/TF/action/停止时间采集并输出 `AcceptanceEvidence` 结构
-- [ ] T070 [US5] 使用 `192.168.43.137` 完成急停、命令超时、雷达、odom/TF、串口和 SIGTERM 的非运动/零速度故障检查，记录到 `validation/d4-non-motion-faults.md`（急停/超时/雷达/EKF/SIGTERM 已通过；物理串口拔插仍待 T035 运动门禁）
+- [ ] T070 [US5] 使用运行时配置地址完成急停、命令超时、雷达、odom/TF、串口和 SIGTERM 的非运动/零速度故障检查，记录到 `validation/d4-non-motion-faults.md`（急停/超时/雷达/EKF/SIGTERM 已通过；物理串口拔插仍待 T035 运动门禁）
 - [ ] T071 [US5] **[MOTION-GATE]** D3 通过后执行模拟低电返回 Home 和不可达 Home 锁止，记录到 `validation/d4-return-home.md`
 - [ ] T072 [US5] **[MOTION-GATE]** 以批准限速连续完成两次综合 Demo，并记录到 `validation/d4-demo.md`
 - [ ] T073 [US5] 汇总 D4 门禁；只有 T062-T072 全部 PASS 才在 `validation/d4-gate.md` 标记 D4 通过
@@ -176,7 +176,7 @@
 **Purpose**: 完成部署可重复性、文档、全套回归、接口覆盖和最终交接。
 
 - [X] T074 [P] 完成 `scripts/deploy_ros2_navigation.ps1` 的 staging、选包构建、dry-run、失败不切换 overlay 和无凭据输出
-- [X] T075 [P] 更新 `docs/AI_CAR_CONNECTION_AND_DEVELOPMENT.md`，记录新 topic/service、互斥模式、`192.168.160.196` 作为当前可变地址和运动批准流程
+- [X] T075 [P] 更新 `docs/AI_CAR_CONNECTION_AND_DEVELOPMENT.md`，记录新 topic/service、互斥模式、运行时地址和运动批准流程
 - [X] T076 [P] 更新 `smart-car-console/local-config.example.json` 只增加非敏感导航默认项；验证 `local-config.json` 仍被忽略且未修改
 - [X] T077 运行全部 Python/C++/ROS/Node 测试与控制台 build，执行 `quickstart.md` 非运动部分，把版本、命令和结果写入 `validation/final-software.md`
 - [X] T078 对照 FR-001..FR-032 检查 task/evidence 覆盖率 100%，并在 `validation/requirements-traceability.md` 记录每条需求状态

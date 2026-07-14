@@ -1,0 +1,8 @@
+string task_id
+string operation
+string reason
+---
+bool success
+string state
+string error_code
+string error_message

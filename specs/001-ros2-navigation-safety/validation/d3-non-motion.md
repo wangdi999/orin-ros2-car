@@ -1,7 +1,7 @@
 # D3 Navigation Non-motion Validation
 
 **Status**: PASS — T051 completed on 2026-07-13
-**Target**: `192.168.160.196`
+**Target**: runtime-configured vehicle endpoint
 **Release**: `20260713T112841Z`
 **Safety scope**: Nav2/AMCL startup and read-only interface checks using a provisional stationary map; no navigation goal, patrol, return-home, simulated low battery or non-zero velocity command
 

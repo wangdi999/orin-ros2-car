@@ -1,7 +1,7 @@
 # D1 Safe-base Non-motion Validation
 
 **Status**: PASS — T034 completed on 2026-07-13
-**Target**: `192.168.160.196`
+**Target**: runtime-configured vehicle endpoint
 **Release**: `20260713T112841Z`
 **Launch limits**: `max_linear=0.05 m/s`, `max_angular=0.20 rad/s`
 **Motion commands sent**: none; no manual publisher, Nav2 goal, patrol or return request was used

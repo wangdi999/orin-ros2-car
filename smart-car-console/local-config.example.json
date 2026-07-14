@@ -1,10 +1,11 @@
 {
   "car": {
-    "host": "192.168.43.137",
+    "host": "",
     "sshUser": "jetson",
     "sshPassword": "",
-    "sshHostKey": "SHA256:AJffjk3YWwStux7ZbdKdft3teC8b7Jsubuvv4zMYuD8",
-    "plinkPath": "D:\\putty\\plink.exe"
+    "sshHostKey": "",
+    "plinkPath": "C:\\Program Files\\PuTTY\\plink.exe",
+    "sshPrivateKey": ""
   },
   "control": {
     "maxLinearMps": 0.5,
@@ -12,6 +13,7 @@
     "turnScale": -1,
     "deadZone": 0.05,
     "watchdogMs": 500,
+    "commandTopic": "/cmd_vel_manual",
     "heartbeatProtectionEnabled": true,
     "straightAssist": {
       "enabled": true,
@@ -42,5 +44,11 @@
   },
   "safety": {
     "motionWarningAcknowledgedAt": null
+  },
+  "agent": {
+    "host": "",
+    "port": 8100,
+    "token": "",
+    "requestTimeoutMs": 20000
   }
 }

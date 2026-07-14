@@ -1,7 +1,7 @@
 # Research: ROS2 核心与导航四天闭环
 
 **Date**: 2026-07-12
-**Target runtime inspected**: ROS 2 Foxy at the physical car; current test endpoint updated to `192.168.43.137`.
+**Target runtime inspected**: ROS 2 Foxy at the physical car; the test endpoint is supplied at runtime from local configuration.
 
 ## R1. Final velocity boundary
 
@@ -117,7 +117,7 @@
 
 ## R11. Testing and evidence
 
-**Decision**: 纯策略与解析逻辑在 Windows/CI 测试；ROS 导入、消息生成、launch 和 `colcon` 在 Foxy 容器测试；非运动 topic/TF/参数检查可直接连接 `192.168.43.137`；只有非零 Twist/action 需要用户批准。
+**Decision**: 纯策略与解析逻辑在 Windows/CI 测试；ROS 导入、消息生成、launch 和 `colcon` 在 Foxy 容器测试；非运动 topic/TF/参数检查使用运行时配置的车端地址；只有非零 Twist/action 需要用户批准。
 
 **Rationale**: 抽取目录不包含完整车端依赖图，本机伪造 Foxy 环境会降低可信度。分层验证能在不移动硬件的情况下尽早发现大多数错误。
 

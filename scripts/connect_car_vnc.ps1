@@ -10,5 +10,5 @@ if (-not (Test-Path -LiteralPath $viewer)) {
 }
 
 Write-Host "Opening VNC connection to $CarIp ..."
-Write-Host "When prompted, use the car VNC password: yahboom"
+Write-Host "When prompted, use the VNC password from the device handover notes or your local secret store."
 Start-Process -FilePath $viewer -ArgumentList @($CarIp)

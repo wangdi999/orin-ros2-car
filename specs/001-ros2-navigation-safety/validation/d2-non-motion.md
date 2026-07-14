@@ -1,7 +1,7 @@
 # D2 Mapping Non-motion Validation
 
 **Status**: PASS — T042 completed on 2026-07-13
-**Target**: `192.168.160.196`
+**Target**: runtime-configured vehicle endpoint
 **Release**: `20260713T112841Z`
 **Safety scope**: mapping startup and read-only graph/topic/TF inspection only; no teleoperation or non-zero velocity command
 

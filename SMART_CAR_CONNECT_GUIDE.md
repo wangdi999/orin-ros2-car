@@ -13,7 +13,7 @@
 
 - Smart car onboard system: Ubuntu 20.04, ROS2 Foxy.
 - Laptop remote access: VNC Viewer.
-- Default Wi-Fi/hotspot name: `ohcar`.
+- Default Wi-Fi/hotspot name: `ohcar9`（2026-07 换新车后更新，原旧车为 `ohcar`）。
 - Wi-Fi password: use the value from your car manual or lab handover notes.
 - VNC password: use the value from your car manual or lab handover notes.
 
@@ -26,14 +26,14 @@ The separate ROS development document describes a VMware Ubuntu 20.04 + ROS Noet
 1. Charge the car if needed. The charger light turns green when full.
 2. Confirm the chassis control Type-C cable is connected to the chassis control port and the middle USB port on top of the car.
 3. Power on the car and wait until the Ubuntu 20.04 desktop appears. Three beeps means the chassis communication is normal.
-4. Create or use a Wi-Fi hotspot named `ohcar` with the Wi-Fi password from your car manual or lab handover notes.
-5. On the car touchscreen, connect the car to `ohcar`.
+4. Create or use a Wi-Fi hotspot named `ohcar9` with the Wi-Fi password from your car manual or lab handover notes.
+5. On the car touchscreen, connect the car to `ohcar9`.
 6. Open a new Terminal on the car. Note the displayed `MY_IP` address.
-7. Connect this Windows laptop to the same `ohcar` Wi-Fi.
+7. Connect this Windows laptop to the same `ohcar9` Wi-Fi.
    If Windows does not auto-show it, run:
 
 ```powershell
-netsh wlan connect name=ohcar
+netsh wlan connect name=ohcar9
 ```
 
 8. From PowerShell in this workspace, run:
@@ -77,8 +77,8 @@ For SLAM/navigation, the manual expects the depth camera to show two USB device 
 
 ## Troubleshooting
 
-- VNC cannot connect: confirm laptop and car are both on `ohcar`, and use the current `MY_IP` from the car screen.
+- VNC cannot connect: confirm laptop and car are both on `ohcar9`, and use the current `MY_IP` from the car screen.
 - Password rejected: confirm you are using the VNC password, not the Wi-Fi password.
-- Cannot find `ohcar`: check the two Wi-Fi antennas are installed, or create a phone hotspot named exactly `ohcar` with the expected Wi-Fi password.
+- Cannot find `ohcar9`: check the two Wi-Fi antennas are installed, or create a phone hotspot named exactly `ohcar9` with the expected Wi-Fi password.
 - Car moves slowly or stops: charge the battery first.
 - Line-following/IOT firmware tests require `ArteryISPProgrammer`; it is not needed for normal VNC connection or ROS/Gazebo/SLAM operation.

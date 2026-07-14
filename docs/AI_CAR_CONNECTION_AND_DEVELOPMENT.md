@@ -70,9 +70,9 @@
 
 | 项目 | 默认值 |
 | --- | --- |
-| Wi-Fi 名称 | `ohcar` |
+| Wi-Fi 名称 | `ohcar9`（2026-07 换新车后变更，旧车为 `ohcar`） |
 | Wi-Fi 密码 | 本地私有配置，不提交仓库 |
-| 当前小车 IP | `192.168.43.137` |
+| 小车 IP | 运行时配置（以小车屏幕显示 `MY_IP` 为准） |
 | SSH 用户 | `jetson` |
 | SSH 密码 | 本地私有配置，不提交仓库 |
 | VNC 密码 | 本地私有配置，不提交仓库 |
@@ -97,27 +97,28 @@
 ```powershell
 cd D:\code\project\smart-car-remote-control-20260707
 netsh wlan add profile filename="wifi\ohcar_wifi_profile.xml"
-netsh wlan connect name=ohcar
+netsh wlan connect name=ohcar9
 ```
 
 ## 5. 连接小车
 
 1. 给小车上电，等待 Ubuntu 桌面和终端启动完成。
-2. 确认小车连接到 `ohcar`，或电脑和小车处于同一网段。
-3. 在小车屏幕或 VNC 里的终端确认当前 IP。当前配置为 `192.168.43.137`。
+2. 确认小车连接到 `ohcar9`，或电脑和小车处于同一网段。
+3. 在小车屏幕或 VNC 里的终端确认当前 IP，并写入已忽略的 `smart-car-console/local-config.json`。
 4. 在 Windows PowerShell 检查连通性：
 
 ```powershell
-ping 192.168.43.137
-Test-NetConnection 192.168.43.137 -Port 22
-Test-NetConnection 192.168.43.137 -Port 5900
+$CarIp = (Get-Content .\smart-car-console\local-config.json -Raw | ConvertFrom-Json).car.host
+ping $CarIp
+Test-NetConnection $CarIp -Port 22
+Test-NetConnection $CarIp -Port 5900
 ```
 
 5. 使用 VNC 连接小车桌面：
 
 ```powershell
 cd D:\code\project\smart-car-remote-control-20260707
-.\scripts\connect_car_vnc.ps1 -CarIp 192.168.43.137
+.\scripts\connect_car_vnc.ps1 -CarIp $CarIp
 ```
 
 6. VNC 密码使用本地私有设备密码。
@@ -328,9 +329,9 @@ npm run build
 推荐流程：
 
 ```powershell
-scp -r .\ros2_car_remote_ws\src\icar_ctrl jetson@192.168.43.137:/home/jetson/remote_ws_src/
-scp -r .\ros2_car_remote_ws\src\icar_bringup jetson@192.168.43.137:/home/jetson/remote_ws_src/
-ssh jetson@192.168.43.137
+scp -r .\ros2_car_remote_ws\src\icar_ctrl "jetson@${CarIp}:/home/jetson/remote_ws_src/"
+scp -r .\ros2_car_remote_ws\src\icar_bringup "jetson@${CarIp}:/home/jetson/remote_ws_src/"
+ssh "jetson@$CarIp"
 ```
 
 在小车 Jetson 上：
@@ -400,7 +401,7 @@ rosbridge 失败：
 
 ## 15. ROS2 安全导航闭环（2026-07-13）
 
-当前可变车端地址是 `192.168.43.137`，必须以 `local-config.json` 或运行参数为准，不能把该地址当作永久设备身份。用户已恢复本地和车端非运动测试；任何非零 Twist、导航目标、巡航、返航或模拟低电返航仍需事先汇报并取得明确批准。
+车端地址必须以 `local-config.json` 或运行参数为准，不能把某个地址当作永久设备身份。任何非零 Twist、导航目标、巡航、返航或模拟低电返航仍需事先汇报并取得明确批准。
 
 导航运行栈统一设置 `ROS_LOCALHOST_ONLY=1`，并通过 `fastdds_localhost.xml` 把 UDPv4 限定到 `127.0.0.1`、把 initial-peer range 扩为 64，以避免车端 host-network/Wi-Fi 和 participant churn 下的发现不完整。所有 ROS 节点和 rosbridge 都在同一容器网络命名空间；Windows 控制台只通过 9090 WebSocket 接入，不直接参与 DDS。
 
@@ -455,8 +456,8 @@ Nav2 /cmd_vel_nav ──────┘
 未来收到测试命令后，先审阅 dry-run；脚本不保存密码、不关闭 SSH host-key 校验，也不会自动启动运行节点：
 
 ```powershell
-.\scripts\deploy_ros2_navigation.ps1 -CarIp 192.168.43.137 -DryRun
-.\scripts\deploy_ros2_navigation.ps1 -CarIp 192.168.43.137 -UseConsoleConfig
+.\scripts\deploy_ros2_navigation.ps1 -CarIp $CarIp -DryRun
+.\scripts\deploy_ros2_navigation.ps1 -CarIp $CarIp -UseConsoleConfig
 ```
 
 `-UseConsoleConfig` 只在运行时读取已忽略的 `smart-car-console/local-config.json`，并在命令回显中隐藏密码和 host key；配置了 OpenSSH key 时可省略该开关。
@@ -466,7 +467,7 @@ Nav2 /cmd_vel_nav ──────┘
 只读证据采集同样必须等用户下令后执行：
 
 ```powershell
-.\scripts\collect_navigation_evidence.ps1 -CarIp 192.168.43.137 -Gate d1 -UseConsoleConfig
+.\scripts\collect_navigation_evidence.ps1 -CarIp $CarIp -Gate d1 -UseConsoleConfig
 ```
 
 输出位于被忽略的 `artifacts/navigation/raw/`，不包含密码、host key 或 rosbag；脚本不会发布 Twist、调用服务或发送 action goal，也不会自行把门禁标为 PASS。

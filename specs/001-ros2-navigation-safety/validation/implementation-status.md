@@ -14,7 +14,7 @@
 - Cartographer mapping, atomic map-release save helper, AMCL/Nav2 Foxy configuration, patrol/return-home state machine and inert route template.
 - Console manual topic migration, estop/reset Trigger handling, patrol services, typed alarm handling, safety/source/patrol status and managed launch profiles.
 - Staged deployment and read-only evidence scripts without embedded credentials.
-- Connection/development documentation for endpoint `192.168.160.196`, runtime modes and motion approval.
+- Connection/development documentation for runtime-configured endpoints, runtime modes and motion approval.
 - Local regression: 46 console + 7 driver + 63 navigation tests, all passed; console production build passed.
 - Target Foxy build/test: release `20260713T112841Z`, 80 tests with 0 errors/failures/skips.
 - Vehicle safe-base: scan 7.871 Hz, odom 22.362 Hz, sole final velocity publisher and zero output.

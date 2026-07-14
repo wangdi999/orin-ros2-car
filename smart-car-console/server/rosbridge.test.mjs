@@ -10,6 +10,13 @@ import {
 import { INITIAL_POSE_TOPIC, NAVIGATE_POSE_SERVICE } from './navigationProtocol.mjs';
 import { telemetry } from './state.mjs';
 
+test('unconfigured car host disables ROSBridge without opening a socket', () => {
+  const client = new RosbridgeClient(() => ({ car: { host: '' } }));
+  assert.doesNotThrow(() => client.connect());
+  assert.equal(client.ws, null);
+  assert.equal(client.connected, false);
+});
+
 test('manual drive publishes only to the arbiter input topic', () => {
   const sent = [];
   const client = new RosbridgeClient(() => ({ car: { host: '192.168.43.137' } }));

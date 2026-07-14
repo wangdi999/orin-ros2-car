@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
-  <name>ohcar</name>
+  <name>ohcar9</name>
   <SSIDConfig>
     <SSID>
-      <name>ohcar</name>
+      <name>ohcar9</name>
     </SSID>
   </SSIDConfig>
   <connectionType>ESS</connectionType>

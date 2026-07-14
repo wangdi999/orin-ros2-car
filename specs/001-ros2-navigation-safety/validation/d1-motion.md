@@ -1,7 +1,7 @@
 # D1 Motion Validation
 
 **Status**: FAIL / BLOCKED — T035 is not complete
-**Target**: `192.168.160.196`
+**Target**: runtime-configured vehicle endpoint
 **Release**: `20260713T112841Z`
 **Approval**: on 2026-07-13 the operator confirmed the controlled area was clear and a person was at the emergency stop
 **Applied ceilings**: `0.05 m/s` linear, `0.20 rad/s` angular

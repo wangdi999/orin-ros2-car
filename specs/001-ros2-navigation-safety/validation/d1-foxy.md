@@ -1,7 +1,7 @@
 # D1 Foxy Build and Interface Validation
 
 **Status**: PASS — T033 completed on 2026-07-13
-**Target**: `jetson@192.168.160.196`, Docker image `icar/ros-foxy:1.0.2`, ROS 2 Foxy
+**Target**: runtime-configured Jetson endpoint, Docker image `icar/ros-foxy:1.0.2`, ROS 2 Foxy
 **Promoted release**: `20260713T112841Z`
 **Motion commands sent**: none
 

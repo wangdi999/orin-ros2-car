@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildRemoteStartScript, ServiceManager } from './serviceManager.mjs';
+import { buildRemoteStartScript, hasSafeControlStack, ServiceManager } from './serviceManager.mjs';
 import {
   runtime,
   snapshot,
@@ -82,6 +82,7 @@ test('failed status refresh clears stale remote Docker and service state', async
     docker: false,
     container: null,
     chassis: false,
+    arbiter: false,
     lidar: false,
     camera: false,
     rosbridge: false,
@@ -121,6 +122,7 @@ test('rosbridge port alone does not unlock driving without a local websocket con
       docker: true,
       container: 'smartcar_icar_console',
       chassis: true,
+      arbiter: true,
       lidar: true,
       camera: true,
       rosbridge: true,
@@ -239,5 +241,26 @@ test('mapping startup requires both Cartographer processes to stay alive', () =>
   assert.match(
     script,
     /Traceback\|FATAL\|process has died\|Failed to bring up\|SubstitutionFailure/
+  );
+});
+
+const safeStatus = {
+  services: {
+    docker: true,
+    chassis: true,
+    arbiter: true,
+    lidar: true,
+    rosbridge: true
+  }
+};
+
+test('existing safe stack can be reused by the console', () => {
+  assert.equal(hasSafeControlStack(safeStatus), true);
+});
+
+test('console refuses a stack without the command arbiter', () => {
+  assert.equal(
+    hasSafeControlStack({ services: { ...safeStatus.services, arbiter: false } }),
+    false
   );
 });

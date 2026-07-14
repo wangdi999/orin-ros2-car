@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$CarIp = '192.168.43.137',
+    [string]$CarIp = '',
     [string]$SshUser = 'jetson',
     [string]$ContainerName = 'smartcar_icar_console',
     [string]$RemoteRoot = '/home/jetson/ros2_navigation_overlay',
@@ -29,6 +29,9 @@ if ($UseConsoleConfig) {
         throw "Private console config was not found: $ConsoleConfigPath"
     }
     $privateConfig = Get-Content -LiteralPath $ConsoleConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace($CarIp)) {
+        $CarIp = [string]$privateConfig.car.host
+    }
     $plinkPath = [string]$privateConfig.car.plinkPath
     $password = [string]$privateConfig.car.sshPassword
     $hostKey = [string]$privateConfig.car.sshHostKey
@@ -51,6 +54,10 @@ if ($UseConsoleConfig) {
     $sshDisplayBaseArguments = @('-ssh', '-batch', '-hostkey', '[REDACTED]', '-pw', '[REDACTED]')
     $scpBaseArguments = @('-batch', '-hostkey', $hostKey, '-pw', $password)
     $scpDisplayBaseArguments = @('-batch', '-hostkey', '[REDACTED]', '-pw', '[REDACTED]')
+}
+
+if ([string]::IsNullOrWhiteSpace($CarIp)) {
+    throw 'CarIp must be supplied explicitly or through -UseConsoleConfig.'
 }
 
 if ($CarIp -notmatch '^[A-Za-z0-9.-]+$') { throw 'CarIp contains unsupported characters.' }

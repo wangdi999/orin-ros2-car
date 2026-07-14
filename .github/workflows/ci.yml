@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - devcp
+      - member-b
+  pull_request:
+    branches:
+      - main
+      - devcp
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vision-python-lint:
+    name: Vision Python Lint & Test
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: smart_car_ws
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+
+      - name: Install dependencies
+        run: python -m pip install flake8 pytest numpy opencv-python-headless PyYAML
+
+      - name: Run flake8
+        run: |
+          flake8 src/ \
+            --select=E9,F63,F7,F82 \
+            --show-source \
+            --statistics
+
+      - name: Test
+        run: pytest -q src/
+
+  agent-runtime:
+    name: Agent Runtime
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: agent-runtime
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: agent-runtime/pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      - name: Lint
+        run: ruff check src tests
+
+      - name: Test
+        run: pytest -q -s
+
+      - name: Build Docker image
+        run: docker build -t orin-car-agent-runtime:ci .
+
+  smart-car-console:
+    name: Smart Car Console
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: smart-car-console
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: smart-car-console/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  ros2-agent-ws:
+    name: ROS2 Foxy Build & Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build ROS2 packages in Foxy container
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace/ros2_agent_ws \
+            ros:foxy-ros-base-focal \
+            bash -lc '
+              set -eo pipefail
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                python3-colcon-common-extensions \
+                python3-yaml \
+                python3-pytest \
+                ros-foxy-launch-ros \
+                ros-foxy-nav2-msgs \
+                ros-foxy-rosidl-default-generators
+              export AMENT_TRACE_SETUP_FILES="${AMENT_TRACE_SETUP_FILES:-}"
+              source /opt/ros/foxy/setup.bash
+              set -u
+              colcon build --symlink-install
+              set +u
+              source install/setup.bash
+              set -u
+              python3 -m pytest -q src/
+            '
+
+  integration:
+    name: Cross-Module Integration
+    runs-on: ubuntu-24.04
+    needs:
+      - vision-python-lint
+      - agent-runtime
+      - smart-car-console
+      - ros2-agent-ws
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: python -m pip install pytest numpy PyYAML
+
+      - name: Run integration tests
+        run: pytest -q tests/integration

@@ -36,7 +36,7 @@
 | FR-028 | Localized console changes, 46/46 tests and production build | VERIFIED-SOFTWARE |
 | FR-029 | Read-only collector plus D1/D2/D3 and D4 partial summaries | PARTIAL — motion timing/map/demo evidence pending |
 | FR-030 | Preserved dirty tree, ignored raw artifacts, redacted deployment/collector dry-runs | VERIFIED-SOFTWARE |
-| FR-031 | Parameterized `192.168.160.196` checks and enforced motion-gate boundary | VERIFIED-NON-MOTION |
+| FR-031 | Parameterized runtime endpoint checks and enforced motion-gate boundary | VERIFIED-NON-MOTION |
 | FR-032 | Hard/soft limit tests and documented zero-after-test procedure | PARTIAL — first physical pulse not run |
 
 T078 is complete because every FR has a buildable implementation task, a current evidence status and a named remaining gate where applicable: **32/32 (100%) task/evidence coverage**. Coverage is not acceptance; T035/T043-T045/T052/T059-T061/T070-T073 remain open and no D1-D4 physical gate is claimed PASS.

@@ -42,6 +42,7 @@ export class ServiceManager {
         docker: bool(fields.DOCKER_RUNNING),
         container: fields.CONTAINER_ID || null,
         chassis: bool(fields.SERVICE_CHASSIS),
+        arbiter: bool(fields.SERVICE_ARBITER),
         lidar: bool(fields.SERVICE_LIDAR),
         camera: bool(fields.SERVICE_CAMERA),
         rosbridge: bool(fields.SERVICE_ROSBRIDGE) || bool(fields.PORT_9090),
@@ -162,12 +163,23 @@ function remoteOfflineStatus(lastError) {
       docker: false,
       container: null,
       chassis: false,
+      arbiter: false,
       lidar: false,
-        camera: false,
+      camera: false,
       rosbridge: false,
       video: false
     }
   };
+}
+
+export function hasSafeControlStack(status) {
+  return Boolean(
+    status?.services?.docker
+    && status?.services?.chassis
+    && status?.services?.arbiter
+    && status?.services?.lidar
+    && status?.services?.rosbridge
+  );
 }
 
 function commonContainerLookup() {
@@ -229,12 +241,13 @@ printf 'CONTAINER_ID=%s\\n' "$cid"
 if [ -n "$cid" ]; then
   printf 'DOCKER_RUNNING=1\\n'
   proc_table="$(docker exec "$cid" ps -ef 2>/dev/null || true)"
-  case "$proc_table" in *Mcnamu_driver_X3*) printf 'SERVICE_CHASSIS=1\\n' ;; *) printf 'SERVICE_CHASSIS=0\\n' ;; esac
+  case "$proc_table" in *Mcnamu_driver_X3*|*base_node_X3*|*driver_node*) printf 'SERVICE_CHASSIS=1\\n' ;; *) printf 'SERVICE_CHASSIS=0\\n' ;; esac
+  case "$proc_table" in *cmd_vel_arbiter*) printf 'SERVICE_ARBITER=1\\n' ;; *) printf 'SERVICE_ARBITER=0\\n' ;; esac
   case "$proc_table" in *sllidar_launch.py*|*sllidar_node*) printf 'SERVICE_LIDAR=1\\n' ;; *) printf 'SERVICE_LIDAR=0\\n' ;; esac
   case "$proc_table" in *astra.launch.xml*|*astra_camera*) printf 'SERVICE_CAMERA=1\\n' ;; *) printf 'SERVICE_CAMERA=0\\n' ;; esac
   case "$proc_table" in *rosbridge_websocket_launch.xml*|*rosbridge_websocket*) printf 'SERVICE_ROSBRIDGE=1\\n' ;; *) printf 'SERVICE_ROSBRIDGE=0\\n' ;; esac
 else
-  printf 'DOCKER_RUNNING=0\\nSERVICE_CHASSIS=0\\nSERVICE_LIDAR=0\\nSERVICE_CAMERA=0\\nSERVICE_ROSBRIDGE=0\\n'
+  printf 'DOCKER_RUNNING=0\\nSERVICE_CHASSIS=0\\nSERVICE_ARBITER=0\\nSERVICE_LIDAR=0\\nSERVICE_CAMERA=0\\nSERVICE_ROSBRIDGE=0\\n'
 fi
 proc_host '[s]martcar_mjpeg_video0.py|[R]osmaster-App/rosmaster/app.py|[p]ython3 app.py' && printf 'SERVICE_VIDEO=1\\n' || printf 'SERVICE_VIDEO=0\\n'
 `;

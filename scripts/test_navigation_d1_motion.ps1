@@ -13,7 +13,7 @@ param(
     [string]$Scenario,
     [Parameter(Mandatory)]
     [switch]$ApprovedAreaClearAndEstopReady,
-    [string]$CarIp = '192.168.43.137',
+    [string]$CarIp = '',
     [string]$ContainerName = 'smartcar_icar_console',
     [string]$ConsoleConfigPath = ''
 )
@@ -23,9 +23,6 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $ApprovedAreaClearAndEstopReady) {
     throw 'D1 motion tests require explicit area-clear and emergency-stop approval.'
-}
-if ($CarIp -notmatch '^[A-Za-z0-9.-]+$') {
-    throw 'CarIp contains unsupported characters.'
 }
 if ($ContainerName -notmatch '^[A-Za-z0-9._-]+$') {
     throw 'ContainerName contains unsupported characters.'
@@ -41,6 +38,12 @@ if (-not (Test-Path -LiteralPath $ConsoleConfigPath -PathType Leaf)) {
 
 $privateConfig = Get-Content -LiteralPath $ConsoleConfigPath -Raw -Encoding UTF8 |
     ConvertFrom-Json
+if ([string]::IsNullOrWhiteSpace($CarIp)) {
+    $CarIp = [string]$privateConfig.car.host
+}
+if ($CarIp -notmatch '^[A-Za-z0-9.-]+$') {
+    throw 'CarIp is missing or contains unsupported characters.'
+}
 $plinkPath = [string]$privateConfig.car.plinkPath
 $pscpPath = Join-Path (Split-Path -Parent $plinkPath) 'pscp.exe'
 $password = [string]$privateConfig.car.sshPassword

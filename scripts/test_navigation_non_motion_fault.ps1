@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)]
     [ValidateSet('lidar', 'odom', 'chassis')]
     [string]$Scenario,
-    [string]$CarIp = '192.168.43.137',
+    [string]$CarIp = '',
     [string]$ContainerName = 'smartcar_icar_console',
     [string]$ConsoleConfigPath = '',
     [ValidateRange(0.05, 0.10)]
@@ -23,14 +23,17 @@ if ([string]::IsNullOrWhiteSpace($ConsoleConfigPath)) {
 if (-not (Test-Path -LiteralPath $ConsoleConfigPath -PathType Leaf)) {
     throw "Private console config was not found: $ConsoleConfigPath"
 }
-if ($CarIp -notmatch '^[A-Za-z0-9.-]+$') {
-    throw 'CarIp contains unsupported characters.'
-}
 if ($ContainerName -notmatch '^[A-Za-z0-9._-]+$') {
     throw 'ContainerName contains unsupported characters.'
 }
 
 $privateConfig = Get-Content -LiteralPath $ConsoleConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ([string]::IsNullOrWhiteSpace($CarIp)) {
+    $CarIp = [string]$privateConfig.car.host
+}
+if ($CarIp -notmatch '^[A-Za-z0-9.-]+$') {
+    throw 'CarIp is missing or contains unsupported characters.'
+}
 $plinkPath = [string]$privateConfig.car.plinkPath
 $password = [string]$privateConfig.car.sshPassword
 $hostKey = [string]$privateConfig.car.sshHostKey

@@ -8,6 +8,8 @@ import {
   smoothJoystickVector
 } from './driveSmoothing.js';
 import { keyboardVectorFromCodes, isDriveKeyCode } from './keyboardDrive.js';
+import AgentWorkspace from './AgentWorkspace.jsx';
+import { sameOriginWebSocketUrl } from './browserUrl.js';
 import { capabilityUiState, visibleCapabilityItems } from './capabilityViewModel.js';
 import NavigationWorkbench from './NavigationWorkbench.jsx';
 
@@ -38,6 +40,7 @@ const emptyState = {
         docker: false,
         container: null,
         chassis: false,
+        arbiter: false,
         lidar: false,
         camera: false,
         rosbridge: false,
@@ -227,18 +230,20 @@ const emptyState = {
 
 const defaultConfig = {
   car: {
-    host: '192.168.43.137',
+    host: import.meta.env?.VITE_SMART_CAR_HOST || '',
     sshUser: 'jetson',
     sshPasswordSet: false,
     sshHostKeySet: false,
-    plinkConfigured: false
+    plinkConfigured: false,
+    sshPrivateKeySet: false
   },
   control: {
-    maxLinearMps: 0.05,
-    maxAngularRps: 0.2,
+    maxLinearMps: 0.5,
+    maxAngularRps: 2,
     turnScale: -1,
     deadZone: 0.05,
     watchdogMs: WATCHDOG_TIMEOUT_MS,
+    commandTopic: '/cmd_vel_manual',
     heartbeatProtectionEnabled: true,
     straightAssist: {
       enabled: true,
@@ -256,6 +261,12 @@ const defaultConfig = {
     fps: 20,
     jpegQuality: 70,
     latencyTargetMs: 100
+  },
+  agent: {
+    host: '',
+    port: 8100,
+    tokenSet: false,
+    requestTimeoutMs: 20000
   }
 };
 
@@ -299,6 +310,7 @@ export default function App() {
   const [activeSection, setActiveSection] = useState('overview');
   const [linearLimit, setLinearLimit] = useState(0.5);
   const [angularLimit, setAngularLimit] = useState(2);
+  const [agentOpen, setAgentOpen] = useState(false);
   const [driveVector, setDriveVector] = useState({ forward: 0, turn: 0, strafe: 0 });
   const [keyboardActive, setKeyboardActive] = useState(false);
   const [recordings, setRecordings] = useState([]);
@@ -367,11 +379,9 @@ export default function App() {
     refreshStatus().catch(() => setConnection('offline'));
     refreshPerception().catch(() => {});
     refreshRecordings().catch(() => {});
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const port = window.location.port === '5173' ? '8787' : window.location.port;
     const openSocket = window.setTimeout(() => {
       if (closed) return;
-      ws = new WebSocket(`${protocol}//${window.location.hostname}:${port}/api/telemetry`);
+      ws = new WebSocket(sameOriginWebSocketUrl('/api/telemetry'));
       ws.onopen = () => setConnection('connected');
       ws.onclose = () => {
         if (!closed) setConnection('offline');
@@ -535,10 +545,10 @@ export default function App() {
   }, [canDrive, sendDrive]);
 
   useEffect(() => {
-    if (!keyboardActive || !canDrive || configOpen) return undefined;
+    if (!keyboardActive || !canDrive || configOpen || agentOpen) return undefined;
     const interval = setInterval(() => sendKeyboardVector(), DRIVE_PUBLISH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [canDrive, configOpen, keyboardActive, sendKeyboardVector]);
+  }, [agentOpen, canDrive, configOpen, keyboardActive, sendKeyboardVector]);
 
   useEffect(() => {
     if (!canDrive || configOpen || keyboardActive) return undefined;
@@ -560,7 +570,7 @@ export default function App() {
       }
     }
     async function handleKeyDown(event) {
-      if (isEditableTarget(event.target) || configOpen) return;
+      if (isEditableTarget(event.target) || configOpen || agentOpen) return;
       if (event.code === 'Space') {
         event.preventDefault();
         if (!event.repeat) {
@@ -593,7 +603,7 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', resetKeys);
     };
-  }, [configOpen, postAction, sendKeyboardVector, stopDrive]);
+  }, [agentOpen, configOpen, postAction, sendKeyboardVector, stopDrive]);
 
   const voltageFresh = connection === 'connected' && isTelemetryFresh(telemetry.voltage);
   const topMetrics = useMemo(() => ([
@@ -608,6 +618,17 @@ export default function App() {
     { label: '主车电量', value: formatBatterySummary(telemetry.voltage, voltageFresh), tone: voltageFresh ? 'green' : 'muted' }
   ]), [alarms.summary, config.car.host, navigation, state.runtime.rosbridge.connected, status, telemetry.voltage, voltageFresh]);
 
+  if (agentOpen) {
+    return (
+      <AgentWorkspace
+        onClose={() => setAgentOpen(false)}
+        onEmergency={() => postAction('/api/emergency-stop', 'stop')}
+        robotSnapshot={state}
+        config={config}
+      />
+    );
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -621,6 +642,14 @@ export default function App() {
           ))}
         </div>
         <div className="top-actions">
+          <button
+            className="ai-entry-button"
+            onClick={() => { stopDrive(); setAgentOpen(true); }}
+            title="智能巡检任务中心"
+            type="button"
+          >
+            AI 巡检
+          </button>
           <button className="icon-button danger" onClick={() => postAction('/api/emergency-stop', 'stop')} title="急停">
             <Icon name="stop" />
           </button>
@@ -974,8 +1003,12 @@ function CameraPanel({ host, videoReady, detections, video }) {
   const [imageOk, setImageOk] = useState(true);
   const [streamToken, setStreamToken] = useState(() => Date.now());
   const boxes = detections?.detections ?? [];
+  const [aiImageOk, setAiImageOk] = useState(true);
+  const [aiMode, setAiMode] = useState(false);
+  const [aiStats, setAiStats] = useState(null);
   useEffect(() => {
     setImageOk(true);
+    setAiImageOk(true);
     setStreamToken(Date.now());
   }, [host, videoReady]);
   useEffect(() => {
@@ -986,31 +1019,82 @@ function CameraPanel({ host, videoReady, detections, video }) {
     }, 3000);
     return () => window.clearInterval(timer);
   }, [imageOk, videoReady]);
+  useEffect(() => {
+    if (!aiMode) { setAiStats(null); return; }
+    const poll = () => {
+      fetch('/api/ai-alarms').then(r => r.json()).then(d => {
+        fetch('/api/ai-perf').then(r => r.json()).then(p => {
+          setAiStats({ alarms: d, perf: p });
+        }).catch(() => {});
+      }).catch(() => {});
+    };
+    poll();
+    const id = setInterval(poll, 3000);
+    return () => clearInterval(id);
+  }, [aiMode]);
+
+  const showRaw = !aiMode && videoReady && imageOk;
+  const showAi = aiMode && aiImageOk;
+
   return (
     <section className="panel media-panel">
-      <PanelTitle title="摄像头" right={<ToolbarIcons names={['camera', 'fullscreen', 'more']} />} />
-      <div className="camera-frame">
-        {videoReady && imageOk ? (
-          <>
-            <img
-              src={`/api/video?host=${encodeURIComponent(host)}&v=${streamToken}`}
-              alt="智能小车摄像头视频流"
-              onLoad={() => setImageOk(true)}
-              onError={() => setImageOk(false)}
-            />
-            <DetectionOverlay detections={detections} />
-          </>
+      <PanelTitle title="摄像头" right={
+        <div style={{display:'flex',gap:4,alignItems:'center'}}>
+          <button onClick={() => setAiMode(false)}
+            style={{background:aiMode?'#21262d':'#30363d',border:'1px solid #30363d',color:aiMode?'#8b949e':'#58a6ff',borderRadius:4,padding:'2px 8px',fontSize:11,cursor:'pointer'}}>
+            原始画面
+          </button>
+          <button onClick={() => setAiMode(true)}
+            style={{background:aiMode?'#30363d':'#21262d',border:'1px solid #30363d',color:aiMode?'#58a6ff':'#8b949e',borderRadius:4,padding:'2px 8px',fontSize:11,cursor:'pointer'}}>
+            AI检测
+          </button>
+        </div>
+      } />
+      <div className="camera-frame" style={{position:'relative'}}>
+        {aiMode ? (
+          showAi ? (
+            <>
+              <img src="/api/ai-video" alt="AI检测视频流"
+                onError={() => setAiImageOk(false)} />
+              {aiStats && (
+                <div style={{position:'absolute',top:8,right:8,background:'rgba(0,0,0,0.7)',borderRadius:6,padding:'6px 10px',fontSize:11,color:'#c9d1d9',lineHeight:1.6}}>
+                  <div>FPS: <span style={{color:'#58a6ff'}}>{aiStats.perf?.fps ?? '--'}</span></div>
+                  <div>人员: <span style={{color:'#3fb950'}}>{aiStats.alarms?.total_by_type?.person_detected ?? 0}</span></div>
+                  <div>异常: <span style={{color:'#f85149'}}>{aiStats.alarms?.total_by_type?.abnormal_behavior ?? 0}</span></div>
+                  <div>裂缝: <span style={{color:'#f0883e'}}>{aiStats.alarms?.total_by_type?.cracked_tile ?? 0}</span></div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="camera-placeholder">
+              <Icon name="camera" />
+              <strong>AI检测视频流未连接</strong>
+              <span>请确保 Jetson 上 ai_web_bridge 正在运行 (端口 6501)</span>
+            </div>
+          )
         ) : (
-          <div className="camera-placeholder">
-            <Icon name="camera" />
-            <strong>视频流未连接</strong>
-            <span>启动服务后代理 http://{host}:6500/video_feed</span>
-          </div>
+          showRaw ? (
+            <>
+              <img
+                src={`/api/video?host=${encodeURIComponent(host)}&v=${streamToken}`}
+                alt="智能小车摄像头视频流"
+                onLoad={() => setImageOk(true)}
+                onError={() => setImageOk(false)}
+              />
+              <DetectionOverlay detections={detections} />
+            </>
+          ) : (
+            <div className="camera-placeholder">
+              <Icon name="camera" />
+              <strong>视频流未连接</strong>
+              <span>启动服务后代理 http://{host}:6500/video_feed</span>
+            </div>
+          )
         )}
       </div>
       <div className="media-footer">
-        <span>{imageOk && videoReady ? `MJPEG ${video?.width ?? 640}x${video?.height ?? 480}@${video?.fps ?? 20}` : '等待视频流'}</span>
-        <span>{boxes.length > 0 ? `${boxes.length} 个检测框` : `${host}:6500`}</span>
+        <span>{aiMode ? (showAi ? 'AI检测' : '等待AI检测流') : (showRaw ? `MJPEG ${video?.width ?? 640}x${video?.height ?? 480}@${video?.fps ?? 20}` : '等待视频流')}</span>
+        <span>{aiMode ? `${host}:6501 (AI检测)` : (boxes.length > 0 ? `${boxes.length} 个检测框` : `${host}:6500`)}</span>
       </div>
     </section>
   );
@@ -2167,7 +2251,10 @@ function ConfigDialog({ config, onClose, onSaved }) {
   const [form, setForm] = useState({
     host: config.car.host,
     sshUser: config.car.sshUser,
-    sshPassword: ''
+    sshPassword: '',
+    agentHost: config.agent?.host || '',
+    agentPort: config.agent?.port || 8100,
+    agentToken: ''
   });
   const [saving, setSaving] = useState(false);
 
@@ -2194,6 +2281,11 @@ function ConfigDialog({ config, onClose, onSaved }) {
             host: form.host,
             sshUser: form.sshUser,
             sshPassword: form.sshPassword
+          },
+          agent: {
+            host: form.agentHost,
+            port: Number(form.agentPort),
+            token: form.agentToken
           }
         })
       });
@@ -2228,6 +2320,22 @@ function ConfigDialog({ config, onClose, onSaved }) {
         <label>
           <span>Plink 路径</span>
           <small>仅可在 local-config.json 中设置</small>
+        </label>
+        <label>
+          <span>SSH 私钥</span>
+          <small>仅可在 local-config.json 中设置</small>
+        </label>
+        <label>
+          <span>Agent 主机</span>
+          <input placeholder="留空则使用小车 IP" value={form.agentHost} onChange={(event) => setForm({ ...form, agentHost: event.target.value })} />
+        </label>
+        <label>
+          <span>Agent 端口</span>
+          <input type="number" min="1" max="65535" value={form.agentPort} onChange={(event) => setForm({ ...form, agentPort: event.target.value })} />
+        </label>
+        <label>
+          <span>Agent Token</span>
+          <input type="password" placeholder={config.agent?.tokenSet ? '已保存 Token' : ''} value={form.agentToken} onChange={(event) => setForm({ ...form, agentToken: event.target.value })} />
         </label>
         <div className="dialog-actions">
           <button type="button" disabled={saving} onClick={resetMotionWarning}>重置运动风险提示</button>

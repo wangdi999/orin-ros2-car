@@ -1,0 +1,16 @@
+policies:
+  flooding:
+    confidence_threshold: 0.75
+    action: pause_and_notify
+    dedup_window_sec: 30
+    location_grid_m: 0.5
+  obstacle:
+    confidence_threshold: 0.70
+    action: record_and_notify
+    dedup_window_sec: 20
+    location_grid_m: 0.5
+  pothole:
+    confidence_threshold: 0.70
+    action: record_and_notify
+    dedup_window_sec: 30
+    location_grid_m: 0.5

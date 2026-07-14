@@ -1,0 +1,9 @@
+string task_id
+string name
+string[] location_ids
+string event_policy_json
+bool return_home
+---
+bool accepted
+string error_code
+string error_message
