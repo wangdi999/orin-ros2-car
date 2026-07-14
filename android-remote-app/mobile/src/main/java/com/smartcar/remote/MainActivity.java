@@ -80,7 +80,6 @@ public class MainActivity extends Activity {
     private JoystickView joystickView;
     private SeekBar speedSeek;
     private Button connectButton;
-    private Button modeButton;
     private ScrollView mainScrollView;
     private View auxiliaryPanel;
     private LinearLayout auxiliaryContent;
@@ -90,7 +89,6 @@ public class MainActivity extends Activity {
 
     private SmartConnection connection;
     private boolean connected = false;
-    private boolean mockMode = false;
     private int sentCount = 0;
     private int heartbeatCount = 0;
     private final android.os.Handler aiPollHandler = new android.os.Handler();
@@ -99,7 +97,7 @@ public class MainActivity extends Activity {
     private int connectionGeneration = 0;
     private String lastLogMessage = "等待连接...";
     private String lastAlarmMessage = "报警列表：暂无报警";
-    private String telemetrySummary = "遥测：未订阅。连接成功后会自动订阅 /scan、/imu、/voltage、/vel_raw、/joint_states。";
+    private String telemetrySummary = "遥测：等待连接...";
     private double currentLinearX = 0.0;
     private double currentLinearY = 0.0;
     private double currentAngularZ = 0.0;
@@ -194,15 +192,13 @@ public class MainActivity extends Activity {
 
         LinearLayout statusCard = panel();
         LinearLayout statusRow = row();
-        linkText = metric("链路", "OFFLINE");
-        modeText = metric("模式", "CAR");
-        packetText = metric("发送", "0");
+        linkText = metric("链路", "OFFLINE");        packetText = metric("发送", "0");
         statusRow.addView(linkText, weighted());
         statusRow.addView(modeText, weighted());
         statusRow.addView(packetText, weighted());
         statusCard.addView(statusRow, matchWrap());
 
-        statusText = hintText("未连接：当前是真实小车模式，请填写小车 IP 和 9090 端口。");
+        statusText = hintText("未连接：请输入小车 IP 和端口");
         statusCard.addView(statusText, matchWrap());
         heartbeatText = hintText("心跳保护：连接后会持续发送当前速度，断开或急停会发停止指令。");
         heartbeatText.setTextColor(Color.rgb(157, 235, 255));
@@ -216,7 +212,7 @@ public class MainActivity extends Activity {
 
         LinearLayout connectCard = panel();
         connectCard.addView(sectionTitle("连接控制"), matchWrap());
-        connectCard.addView(hintText("真实小车：IP 填小车终端显示的地址，端口通常为 9090。模拟测试才使用 10.0.2.2。"), matchWrap());
+        connectCard.addView(hintText("输入小车终端显示的 IP 地址，端口默认 9090"), matchWrap());
         connectCard.addView(hintText("小车端检查：hostname -I 查看 IP；ss -lntp | grep 9090 确认 rosbridge 已启动。"), matchWrap());
         connectionGuideText = hintText("");
         connectCard.addView(connectionGuideText, matchWrap());
@@ -227,20 +223,13 @@ public class MainActivity extends Activity {
         connectButton = button("连接");
         styleButton(connectButton, Color.rgb(20, 210, 255), Color.rgb(0, 83, 122), Color.WHITE);
         connectButton.setOnClickListener(v -> toggleConnection());
-        modeButton = button("真实小车：WebSocket");
-        styleButton(modeButton, Color.rgb(30, 46, 70), Color.rgb(30, 46, 70), Color.rgb(116, 231, 255));
-        modeButton.setOnClickListener(v -> toggleMockMode());
-        connectRow.addView(hostInput, weighted());
+                                connectRow.addView(hostInput, weighted());
         connectRow.addView(portInput, fixedDp(86));
         connectRow.addView(connectButton, fixedDp(88));
         connectCard.addView(connectRow, matchWrap());
 
-        LinearLayout presetConnectRow = row();
-        presetConnectRow.addView(actionButton("填入小车地址", v -> applyCarConnectionPreset()), weighted());
-        presetConnectRow.addView(actionButton("填入模拟器地址", v -> applyMockConnectionPreset()), weighted());
-        connectCard.addView(presetConnectRow, matchWrap());
-        connectCard.addView(modeButton, matchWrap());
-        root.addView(connectCard, matchWrapWithBottom(14));
+                presetConnectRow.addView(actionButton("填入小车地址", v -> applyCarConnectionPreset()), weighted());
+                                root.addView(connectCard, matchWrapWithBottom(14));
 
         LinearLayout commandCard = panel();
         commandCard.addView(sectionTitle("主控方向"), matchWrap());
@@ -387,7 +376,7 @@ public class MainActivity extends Activity {
         styleTab(logTabButton, index == 2);
 
         if (index == 0) {
-            auxiliaryContent.addView(hintText("视频流来自成品控制台约定的小车端口：6500/video_feed。若画面为空，请先在小车端启动视频服务。"), matchWrap());
+            auxiliaryContent.addView(hintText("AI检测画面来自小车 :6501/video_feed，若空白请确认 ai_web_bridge 已启动"), matchWrap());
             videoStatusText = hintText("视频状态：未打开。连接小车后点击“打开视频流”。");
             videoStatusText.setTextColor(Color.rgb(157, 235, 255));
             auxiliaryContent.addView(videoStatusText, matchWrap());
@@ -401,7 +390,7 @@ public class MainActivity extends Activity {
             videoWebView.setBackgroundColor(Color.rgb(7, 18, 31));
             videoWebView.loadDataWithBaseURL(
                     null,
-                    "<html><body style='margin:0;background:#07121f;color:#9dcfeb;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;'>等待视频流<br/>http://小车IP:6500/video_feed</body></html>",
+                    "<html><body style='margin:0;background:#07121f;color:#9dcfeb;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;'>等待AI检测画面<br/>http://小车IP:6501/video_feed</body></html>",
                     "text/html",
                     "UTF-8",
                     null
@@ -412,7 +401,7 @@ public class MainActivity extends Activity {
             videoActions.addView(actionButton("刷新视频", v -> openVideoStream()), weighted());
             auxiliaryContent.addView(videoActions, matchWrap());
             auxiliaryContent.addView(sectionTitle("AI 检测框"), matchWrap());
-            auxiliaryContent.addView(hintText("当前先用模拟检测展示告警框和报警联动；后续接入真实识别结果后，可把检测框坐标映射到此区域。"), matchWrap());
+            auxiliaryContent.addView(hintText("AI检测告警将自动轮询刷新（每3秒），无需手动触发"), matchWrap());
             detectionPreview = new DetectionPreview(this);
             auxiliaryContent.addView(detectionPreview, fixedHeight(dp(178)));
             LinearLayout visionActions = row();
@@ -441,7 +430,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        auxiliaryContent.addView(hintText("诊断模块参考成品控制台：检查 ROSBridge、视频流、/cmd_vel 与遥测 topic。"), matchWrap());
+        auxiliaryContent.addView(hintText("连接后自动订阅遥测并轮询 AI 告警"), matchWrap());
         serviceStatusText = hintText(buildServiceStatusText());
         serviceStatusText.setTextColor(Color.rgb(157, 235, 255));
         auxiliaryContent.addView(serviceStatusText, matchWrap());
@@ -449,7 +438,7 @@ public class MainActivity extends Activity {
         telemetryText.setTextColor(Color.rgb(157, 235, 255));
         auxiliaryContent.addView(telemetryText, matchWrap());
         LinearLayout diagnosticActions = row();
-        diagnosticActions.addView(actionButton("订阅遥测", v -> subscribeTelemetry()), weighted());
+        diagnosticActions.addView(actionButton("刷新遥测", v -> subscribeTelemetry()), weighted());
         diagnosticActions.addView(actionButton("刷新状态", v -> refreshDiagnosticPanel()), weighted());
         auxiliaryContent.addView(diagnosticActions, matchWrap());
         auxiliaryContent.addView(sectionTitle("运行日志"), matchWrap());
@@ -502,7 +491,7 @@ public class MainActivity extends Activity {
         button.setOnTouchListener((v, event) -> {
             if (!connected) {
                 setStatus("未连接：请先连接小车");
-                addLog("控制被拒绝：未连接");
+                addLog("控制：未连接小车");
                 return true;
             }
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
@@ -531,8 +520,8 @@ public class MainActivity extends Activity {
         String host = hostInput.getText().toString().trim();
         String port = portInput.getText().toString().trim();
         if (host.isEmpty() || port.isEmpty()) {
-            setStatus("连接失败：IP 和端口不能为空");
-            setConnectionGuide("请先填写小车 IP。小车终端可用 hostname -I 查看，端口通常填 9090。");
+            setStatus("请输入小车 IP 和端口");
+            setConnectionGuide("请填写小车 IP 地址和端口号");
             return;
         }
         int portNumber;
@@ -540,21 +529,17 @@ public class MainActivity extends Activity {
             portNumber = Integer.parseInt(port);
         } catch (NumberFormatException e) {
             setStatus("连接失败：端口必须是数字");
-            setConnectionGuide("端口只能输入数字。真实小车 rosbridge 通常是 9090。");
+            setConnectionGuide("端口默认 9090（ROSBridge WebSocket）");
             return;
         }
-        if (!mockMode && host.startsWith("10.0.2.2")) {
-            setConnectionGuide("当前是 CAR 模式，但 IP 是模拟器地址。真实小车请填 172.20.x.x 或小车终端显示的 IP。");
-        } else if (mockMode && !host.equals("10.0.2.2")) {
+         else if (false && !host.equals("10.0.2.2")) {
             setConnectionGuide("当前是 MOCK 模式，建议 IP 使用 10.0.2.2；如果要连真实小车，请先切换到 CAR。");
         } else {
-            setConnectionGuide(mockMode
-                    ? "正在连接模拟服务：请确认电脑端 mock 服务已启动，端口为 9090。"
-                    : "正在连接真实小车：请确认手机和小车同网，且小车终端 ss -lntp | grep 9090 有输出。");
+            setConnectionGuide("正在连接 ws://" + host + ":" + port + " ...");
         }
 
         String url = "ws://" + host + ":" + portNumber;
-        setStatus("正在连接：" + (mockMode ? "mock://" : "ws://") + host + ":" + portNumber);
+        setStatus("正在连接 ws://" + host + ":" + portNumber);
         final int requestGeneration = ++connectionGeneration;
 
         SmartConnection.Callback callback = new SmartConnection.Callback() {
@@ -567,11 +552,11 @@ public class MainActivity extends Activity {
                     connected = true;
                     connectButton.setText("断开");
                     styleButton(connectButton, Color.rgb(255, 83, 112), Color.rgb(115, 22, 42), Color.WHITE);
-                    setStatus("已连接：" + (mockMode ? "模拟服务 " : url));
+                    setStatus("已连接 ws://" + host + ":" + port);
                     setConnectionGuide("连接成功。现在请把速度调到 10%-25%，车轮悬空，先按“急停”，再短按“前进”。");
                     setControlsEnabled(true);
                     updateConnectionPanel();
-                    addLog("连接成功");
+                    addLog("已连接小车 ROSBridge，AI告警轮询已启动");
                     advertiseCmdVel();
                     subscribeTelemetry();
                     startAiPolling();
@@ -634,9 +619,7 @@ public class MainActivity extends Activity {
                 });
             }
         };
-        connection = mockMode
-                ? new SimpleTcpConnection(host, portNumber, callback)
-                : new SimpleWebSocket(host, portNumber, callback);
+        connection = new SimpleWebSocket(host, portNumber, callback);
         connection.connect();
     }
 
@@ -671,14 +654,14 @@ public class MainActivity extends Activity {
 
     private void subscribeTelemetry() {
         if (!connected || connection == null) {
-            setStatus("未连接：请先连接小车，再订阅遥测");
-            addLog("遥测订阅被拒绝：未连接");
+            setStatus("未连接：请先连接小车");
+            addLog("遥测：未连接小车");
             return;
         }
         if (telemetrySubscribed) {
-            telemetrySummary = "遥测：已订阅，无需重复订阅。等待 /scan、/imu、/voltage 等数据。";
+            telemetrySummary = "遥测：等待传感器数据...";
             refreshDiagnosticPanel();
-            addLog("遥测已订阅，跳过重复请求");
+            addLog("遥测：已订阅");
             return;
         }
         subscribeTopic("/scan", "sensor_msgs/LaserScan", 120);
@@ -688,9 +671,9 @@ public class MainActivity extends Activity {
         subscribeTopic("/vel_raw", "geometry_msgs/Twist", 200);
         subscribeTopic("/joint_states", "sensor_msgs/JointState", 200);
         telemetrySubscribed = true;
-        telemetrySummary = "遥测：已订阅 /scan、/imu/data_raw、/imu/mag、/voltage、/vel_raw、/joint_states，等待小车发布数据。";
+        telemetrySummary = "遥测：等待小车发布传感器数据...";
         refreshDiagnosticPanel();
-        addLog("已订阅遥测 topic");
+        addLog("遥测订阅完成");
     }
 
     private void subscribeTopic(String topic, String type, int throttleRate) {
@@ -846,27 +829,14 @@ public class MainActivity extends Activity {
         return matcher.find() ? matcher.group(1) : "";
     }
 
-    private void toggleMockMode() {
-        if (connected) {
-            setStatus("请先断开连接，再切换模式");
-            return;
-        }
-        mockMode = !mockMode;
-        modeButton.setText(mockMode ? "模拟测试：开" : "真实小车：WebSocket");
-        setStatus(mockMode
-                ? "模拟测试模式：IP 使用 10.0.2.2，端口 9090"
-                : "真实小车模式：输入小车 IP，端口通常为 9090");
-        refreshConnectionGuide();
-        updateConnectionPanel();
-        addLog(mockMode ? "切换到模拟测试模式" : "切换到真实小车模式");
-    }
+    
 
     private void applyCarConnectionPreset() {
         if (connected) {
             setConnectionGuide("请先断开连接，再修改连接地址。");
             return;
         }
-        mockMode = false;
+        false = false;
         hostInput.setText("172.20.10.14");
         portInput.setText("9090");
         modeButton.setText("真实小车：WebSocket");
@@ -876,29 +846,14 @@ public class MainActivity extends Activity {
         addLog("已填入真实小车连接配置");
     }
 
-    private void applyMockConnectionPreset() {
-        if (connected) {
-            setConnectionGuide("请先断开连接，再修改连接地址。");
-            return;
-        }
-        mockMode = true;
-        hostInput.setText("10.0.2.2");
-        portInput.setText("9090");
-        modeButton.setText("模拟测试：开");
-        setStatus("已切换到模拟测试连接配置");
-        refreshConnectionGuide();
-        updateConnectionPanel();
-        addLog("已填入模拟器连接配置");
-    }
+    
 
     private void refreshConnectionGuide() {
         if (connected) {
             setConnectionGuide("已连接。操作顺序：低速 -> 急停 -> 短按前进/后退 -> 观察小车和 /cmd_vel。");
             return;
         }
-        setConnectionGuide(mockMode
-                ? "模拟测试：电脑运行 mock 服务，App 填 10.0.2.2:9090，然后点击连接。"
-                : "真实小车：手机和小车同一网络；小车终端确认 9090 已监听；App 填小车 IP:9090 后连接。");
+        setConnectionGuide("正在连接 ws://" + host + ":" + port + " ...");
     }
 
     private void setConnectionGuide(String text) {
@@ -910,16 +865,16 @@ public class MainActivity extends Activity {
     private String connectionFailureHint(String message) {
         String detail = message == null ? "" : message;
         if (detail.contains("ECONNREFUSED") || detail.contains("refused")) {
-            return "连接被拒绝：IP 能找到，但端口没有服务。请在小车终端启动 rosbridge，并确认 ss -lntp | grep 9090 有输出。";
+            return "连接被拒绝：端口无服务。请在小车端运行 rosbridge_server";
         }
         if (detail.contains("timed out") || detail.contains("timeout")) {
             return "连接超时：通常是手机和小车不在同一网络，或 IP 填错。请重新查看小车 IP，并确认手机连接同一 Wi-Fi/热点。";
         }
         if (detail.contains("No route") || detail.contains("host")) {
-            return "找不到小车：请检查 IP 是否是小车当前 IP，不要把模拟器地址 10.0.2.2 用在真实小车上。";
+            return "找不到小车：请检查 IP 是否正确，手机和小车是否在同一网络";
         }
         if (detail.contains("握手") || detail.contains("handshake")) {
-            return "WebSocket 握手失败：端口可能不是 rosbridge 服务。真实小车需要 rosbridge_server 监听 9090。";
+            return "WebSocket 握手失败：请确认小车端 rosbridge_server 正在运行（端口 9090）";
         }
         return "连接失败：请确认网络同一、IP 正确、端口 9090 已监听；仍失败就查看“日志 / 报警”页的错误信息。";
     }
@@ -1036,7 +991,7 @@ public class MainActivity extends Activity {
             linkText.setTextColor(connected ? Color.rgb(78, 255, 179) : Color.rgb(255, 116, 140));
         }
         if (modeText != null) {
-            modeText.setText("模式\n" + (mockMode ? "MOCK" : "CAR"));
+            modeText.setText("类型\nROS2");
         }
         if (packetText != null) {
             packetText.setText("发送\n" + sentCount);
@@ -1444,77 +1399,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private static final class SimpleTcpConnection implements SmartConnection {
-        private final String host;
-        private final int port;
-        private final Callback callback;
-        private final ExecutorService sendExecutor = Executors.newSingleThreadExecutor();
-        private Socket socket;
-        private OutputStream output;
-        private volatile boolean closed = false;
-
-        SimpleTcpConnection(String host, int port, Callback callback) {
-            this.host = host;
-            this.port = port;
-            this.callback = callback;
-        }
-
-        @Override
-        public void connect() {
-            new Thread(() -> {
-                try {
-                    socket = new Socket();
-                    socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
-                    socket.setTcpNoDelay(true);
-                    output = socket.getOutputStream();
-                    callback.onOpen();
-                    while (!closed && socket.isConnected() && !socket.isClosed()) {
-                        Thread.sleep(1000L);
-                    }
-                } catch (Exception exception) {
-                    if (!closed) {
-                        callback.onFailure(exception);
-                    }
-                } finally {
-                    closeQuietly();
-                }
-            }, "smart-car-tcp-connect").start();
-        }
-
-        @Override
-        public void send(String text) {
-            sendExecutor.execute(() -> {
-                if (closed || output == null) {
-                    return;
-                }
-                try {
-                    output.write((text + "\n").getBytes(StandardCharsets.UTF_8));
-                    output.flush();
-                } catch (IOException exception) {
-                    if (!closed) {
-                        callback.onFailure(exception);
-                    }
-                    close();
-                }
-            });
-        }
-
-        @Override
-        public void close() {
-            closed = true;
-            sendExecutor.shutdownNow();
-            closeQuietly();
-        }
-
-        private void closeQuietly() {
-            try {
-                if (socket != null) {
-                    socket.close();
-                }
-            } catch (IOException ignored) {
-            }
-        }
-    }
+    
 
     private static final class SimpleWebSocket implements SmartConnection {
 
