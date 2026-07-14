@@ -50,8 +50,8 @@ class TestConfigContracts(unittest.TestCase):
         self.assertEqual(arbiter['nav_timeout_sec'], 0.30)
         self.assertEqual(arbiter['safety_state_timeout_sec'], 0.30)
         self.assertEqual(arbiter['chassis_state_timeout_sec'], 0.30)
-        self.assertLessEqual(arbiter['max_linear_x'], 0.10)
-        self.assertLessEqual(arbiter['max_angular_z'], 0.40)
+        self.assertLessEqual(arbiter['max_linear_x'], 0.50)
+        self.assertLessEqual(arbiter['max_angular_z'], 2.00)
 
         safety = self.yaml('safety.yaml')['safety_manager']['ros__parameters']
         self.assertNotIn('runtime_mode', safety)
@@ -120,6 +120,8 @@ class TestConfigContracts(unittest.TestCase):
         self.assertIn(
             'image: ${basename}.pgm', save_map)
         self.assertIn('grep -Fxq', save_map)
+        self.assertIn('chmod 0755 "$release_dir"', save_map)
+        self.assertIn('chmod 0644 "$release_dir/${basename}.pgm"', save_map)
 
     def test_mapping_and_navigation_map_owners_are_mutually_exclusive(self):
         mapping = (LAUNCH / 'mapping.launch.py').read_text(encoding='utf-8')
@@ -176,9 +178,9 @@ class TestConfigContracts(unittest.TestCase):
         controller = nav['controller_server']['ros__parameters']
         follow = controller['FollowPath']
         self.assertEqual(follow['plugin'], 'dwb_core::DWBLocalPlanner')
-        self.assertEqual(follow['max_vel_x'], 0.10)
+        self.assertEqual(follow['max_vel_x'], 0.50)
         self.assertEqual(follow['max_vel_y'], 0.0)
-        self.assertEqual(follow['max_vel_theta'], 0.40)
+        self.assertEqual(follow['max_vel_theta'], 2.00)
         self.assertEqual(controller['goal_checker']['xy_goal_tolerance'], 0.15)
         self.assertEqual(controller['goal_checker']['yaw_goal_tolerance'], 0.15)
         planner = nav['planner_server']['ros__parameters']['GridBased']

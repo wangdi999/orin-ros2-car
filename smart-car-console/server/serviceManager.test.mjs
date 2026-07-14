@@ -162,6 +162,11 @@ test('safe-base startup uses the managed overlay and one navigation launch profi
   assert.match(script, /export ROS_LOCALHOST_ONLY=1/);
   assert.match(script, /FASTRTPS_DEFAULT_PROFILES_FILE=.*fastdds_localhost\.xml/);
   assert.match(script, /ros2 launch icar_navigation safe_base\.launch\.py/);
+  assert.match(
+    script,
+    /\$ros_setup; \. \$navigation_setup; ros2 launch rosbridge_server rosbridge_websocket_launch\.xml/,
+    'rosbridge must source the custom interface overlay before serving web service calls'
+  );
   assert.match(script, /navigation_enabled=1/);
   assert.match(script, /\/home\/jetson\/ros2_navigation_overlay:\/root\/ros2_navigation_overlay/);
 });
@@ -175,7 +180,7 @@ test('reused or replaced containers receive a zero-only stop before clean restar
   assert.match(script, /stop_container_safely\(\)/);
   assert.match(
     script,
-    /ros2 topic pub --once \/cmd_vel geometry_msgs\/msg\/Twist '\{linear: \{x: 0\.0, y: 0\.0, z: 0\.0\}, angular: \{x: 0\.0, y: 0\.0, z: 0\.0\}\}'/
+    /ros2 topic pub --once \/cmd_vel_manual geometry_msgs\/msg\/Twist '\{linear: \{x: 0\.0, y: 0\.0, z: 0\.0\}, angular: \{x: 0\.0, y: 0\.0, z: 0\.0\}\}'/
   );
   assert.match(script, /pkill -TERM -f/);
   assert.match(script, /docker restart -t 2 "\$cid"/);
@@ -184,6 +189,27 @@ test('reused or replaced containers receive a zero-only stop before clean restar
       script.indexOf('docker rm -f "$cid"'),
     'container replacement must stop safely before forced removal'
   );
+});
+
+test('SSH emergency fallback prefers the arbiter and only falls back to a direct zero', async () => {
+  let script = '';
+  const manager = new ServiceManager(
+    {
+      async run(command) {
+        script = command.script;
+        return { ok: true, code: 0, stdout: '', stderr: '', timedOut: false, durationMs: 1 };
+      }
+    },
+    {}
+  );
+
+  await manager.emergencyStopFallback('test');
+
+  assert.match(script, /grep -Fxq \/cmd_vel_arbiter/);
+  assert.match(script, /ros2 topic pub --once \/cmd_vel_manual geometry_msgs\/msg\/Twist/);
+  assert.match(script, /ros2 topic pub --once \/cmd_vel geometry_msgs\/msg\/Twist/);
+  assert.doesNotMatch(script, /linear: \{x: (?!0\.0)/);
+  assert.doesNotMatch(script, /angular: \{x: 0\.0, y: 0\.0, z: (?!0\.0)/);
 });
 
 test('demo startup is fail-safe and never auto-starts patrol', () => {

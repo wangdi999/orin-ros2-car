@@ -16,7 +16,7 @@
 | `angular_z` | float | 有限；仲裁软限制内 |
 | `fresh` | derived bool | 当前时刻减接收时刻不超过来源 timeout |
 
-最终驱动再次执行独立硬限制：`|linear.x/y| ≤ 0.35`、`|angular.z| ≤ 0.80`。
+最终驱动再次执行独立硬限制：`|linear.x/y| ≤ 0.50`、`|angular.z| ≤ 2.00`。首次及分级实车验收仍使用 quickstart 规定的低速门禁。
 
 ## 2. ActiveSource
 

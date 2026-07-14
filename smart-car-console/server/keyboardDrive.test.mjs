@@ -19,8 +19,8 @@ test('opposite keyboard directions cancel each other', () => {
 });
 
 test('Q and E map to mecanum lateral movement', () => {
-  assert.deepEqual(keyboardVectorFromCodes(['KeyQ']), { forward: 0, turn: 0, strafe: -1 });
-  assert.deepEqual(keyboardVectorFromCodes(['KeyE']), { forward: 0, turn: 0, strafe: 1 });
+  assert.deepEqual(keyboardVectorFromCodes(['KeyQ']), { forward: 0, turn: 0, strafe: 1 });
+  assert.deepEqual(keyboardVectorFromCodes(['KeyE']), { forward: 0, turn: 0, strafe: -1 });
 });
 
 test('arrow keys mirror WASD movement', () => {

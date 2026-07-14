@@ -37,7 +37,7 @@ class TestDriverSafety(unittest.TestCase):
         safety = DriverSafety(x_limit=10.0, y_limit=9.0, angular_limit=8.0)
         self.assertEqual(
             safety.sanitize(2.0, -2.0, 5.0),
-            SafeMotion(0.35, -0.35, 0.80))
+            SafeMotion(0.50, -0.50, 2.00))
 
     def test_lower_runtime_limits_are_respected(self):
         safety = DriverSafety(x_limit=0.1, y_limit=0.2, angular_limit=0.4)

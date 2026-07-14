@@ -42,6 +42,10 @@ release_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 release_dir="${release_root}/${release_id}"
 mkdir -p "$release_root"
 mv -- "$tmp_dir" "$release_dir"
+chmod 0755 "$release_dir"
+chmod 0644 "$release_dir/${basename}.pgm" \
+  "$release_dir/${basename}.yaml" \
+  "$release_dir/${basename}.pbstream"
 
 # The stable artifact links all resolve through one atomically replaced current
 # link, so an existing map never observes a mixed PGM/YAML/PBStream release.

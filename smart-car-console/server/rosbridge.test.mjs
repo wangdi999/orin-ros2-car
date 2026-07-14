@@ -145,6 +145,33 @@ test('Trigger service responses preserve rejection details', async () => {
   assert.equal(response.message, 'odometry is stale');
 });
 
+test('service transport errors preserve rosbridge string details', async () => {
+  const sent = [];
+  const client = new RosbridgeClient(() => ({ car: { host: '192.168.43.137' } }));
+  client.connected = true;
+  client.ws = {
+    readyState: 1,
+    send(message) {
+      sent.push(JSON.parse(message));
+    }
+  };
+
+  const responsePromise = client.callTrigger('/navigation/send_goal');
+  const request = sent.at(-1);
+  client.handleMessage(JSON.stringify({
+    op: 'service_response',
+    id: request.id,
+    service: request.service,
+    result: false,
+    values: 'Service /navigation/send_goal does not exist'
+  }));
+
+  const response = await responsePromise;
+  assert.equal(response.ok, false);
+  assert.equal(response.success, false);
+  assert.equal(response.message, 'Service /navigation/send_goal does not exist');
+});
+
 test('legacy alarm JSON preserves the typed Alarm contract', () => {
   const client = new RosbridgeClient(() => ({ car: { host: '192.168.43.137' } }));
   let received = null;

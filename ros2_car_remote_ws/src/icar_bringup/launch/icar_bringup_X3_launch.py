@@ -26,9 +26,9 @@ def generate_launch_description():
 
     arguments = [
         DeclareLaunchArgument('model', default_value=default_model),
-        DeclareLaunchArgument('xlinear_limit', default_value='0.35'),
-        DeclareLaunchArgument('ylinear_limit', default_value='0.35'),
-        DeclareLaunchArgument('angular_limit', default_value='0.80'),
+        DeclareLaunchArgument('xlinear_limit', default_value='0.50'),
+        DeclareLaunchArgument('ylinear_limit', default_value='0.50'),
+        DeclareLaunchArgument('angular_limit', default_value='2.00'),
         DeclareLaunchArgument('command_timeout_sec', default_value='0.30'),
         DeclareLaunchArgument('reconnect_interval_sec', default_value='5.0'),
         DeclareLaunchArgument('start_driver', default_value='true'),

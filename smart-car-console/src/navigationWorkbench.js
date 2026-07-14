@@ -18,11 +18,23 @@ export function navigationBlockers({ config, navigation, telemetry, motionAcknow
   if (!motionAcknowledged) blockers.push('尚未确认运动风险提示');
   if (navigation?.safetyState !== 'READY') blockers.push(`安全状态为 ${navigation?.safetyState ?? 'UNKNOWN'}`);
   if (telemetry && (!telemetry.pose?.connected || telemetry.pose?.stale)) blockers.push('AMCL / TF 定位尚未就绪');
-  if (!['IDLE', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT', 'REJECTED', undefined].includes(navigation?.goal?.state)) {
+  if (navigationTaskActive(navigation)) {
     blockers.push('已有活动目标');
   }
   if (route && !route.configured) blockers.push('路线尚未配置');
   return blockers;
+}
+
+export function navigationTaskActive(navigation = {}) {
+  const activeStates = new Set(['ACTIVE', 'ACCEPTED', 'EXECUTING', 'CANCELING', 'NAVIGATING', 'WAITING', 'NEXT_GOAL', 'CANCELLING']);
+  const goalState = String(navigation?.goal?.state ?? 'UNKNOWN').toUpperCase();
+  const patrolState = String(navigation?.patrol?.state ?? 'UNKNOWN').toUpperCase();
+  const actionState = String(navigation?.action?.status ?? 'UNKNOWN').toUpperCase();
+  const activeGoals = Number(navigation?.action?.activeGoals ?? 0);
+  return activeStates.has(goalState)
+    || activeStates.has(patrolState)
+    || activeStates.has(actionState)
+    || (Number.isFinite(activeGoals) && activeGoals > 0);
 }
 
 export function emptyRoute() {

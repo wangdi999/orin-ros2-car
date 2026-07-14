@@ -32,8 +32,8 @@ def generate_launch_description():
     arguments = [
         DeclareLaunchArgument('map', default_value=default_map),
         DeclareLaunchArgument('route_file', default_value=default_route),
-        DeclareLaunchArgument('max_linear', default_value='0.10'),
-        DeclareLaunchArgument('max_angular', default_value='0.40'),
+        DeclareLaunchArgument('max_linear', default_value='0.50'),
+        DeclareLaunchArgument('max_angular', default_value='2.00'),
         DeclareLaunchArgument('startup_grace_sec', default_value='60.0'),
         DeclareLaunchArgument('start_driver', default_value='true'),
         DeclareLaunchArgument('start_lidar', default_value='true'),

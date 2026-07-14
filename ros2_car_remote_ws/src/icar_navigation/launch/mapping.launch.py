@@ -22,8 +22,8 @@ def generate_launch_description():
         configuration_directory, 'fastdds_localhost.xml')
 
     arguments = [
-        DeclareLaunchArgument('max_linear', default_value='0.10'),
-        DeclareLaunchArgument('max_angular', default_value='0.40'),
+        DeclareLaunchArgument('max_linear', default_value='0.50'),
+        DeclareLaunchArgument('max_angular', default_value='2.00'),
         DeclareLaunchArgument('startup_grace_sec', default_value='12.0'),
         DeclareLaunchArgument('start_driver', default_value='true'),
         DeclareLaunchArgument('start_lidar', default_value='true'),

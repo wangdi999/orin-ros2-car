@@ -74,8 +74,8 @@ class MotionPolicy:
                  safety_state_timeout_sec=0.30,
                  chassis_state_timeout_sec=0.30,
                  patrol_status_timeout_sec=0.30,
-                 max_linear_x=0.10, max_linear_y=0.10,
-                 max_angular_z=0.40, zero_cycles_on_switch=1):
+                 max_linear_x=0.50, max_linear_y=0.50,
+                 max_angular_z=2.00, zero_cycles_on_switch=1):
         self.manual_timeout_sec = float(manual_timeout_sec)
         self.nav_timeout_sec = float(nav_timeout_sec)
         self.safety_state_timeout_sec = float(safety_state_timeout_sec)

@@ -14,6 +14,7 @@ import {
 import { parsePointCloud2 } from './pointCloud.mjs';
 import {
   addLog,
+  clearMappingTelemetry,
   clearPerceptionTelemetry,
   telemetry,
   updateNavigation,
@@ -125,6 +126,11 @@ export class RosbridgeClient extends EventEmitter {
     this.odomPose = null;
   }
 
+  resetMappingSession() {
+    this.resetLocalizationBuffers();
+    clearMappingTelemetry();
+  }
+
   subscribe({ topic, type, throttleRate, queueLength }) {
     if (!topic || !type) return;
     this.send({
@@ -203,7 +209,7 @@ export class RosbridgeClient extends EventEmitter {
     return this.publish(INITIAL_POSE_TOPIC, buildInitialPoseMessage(pose));
   }
 
-  sendNavigationGoal(pose, timeoutMs = 3500) {
+  sendNavigationGoal(pose, timeoutMs = 10000) {
     const goal = normalizePose(pose, 'goal');
     return this.callService(
       NAVIGATE_POSE_SERVICE,
@@ -245,11 +251,11 @@ export class RosbridgeClient extends EventEmitter {
     return this.callTrigger('/safety/reset');
   }
 
-  callTrigger(service, timeoutMs = 2500) {
+  callTrigger(service, timeoutMs = 8000) {
     return this.callService(service, TRIGGER_SERVICE_TYPE, {}, timeoutMs);
   }
 
-  callService(service, type, args = {}, timeoutMs = 2500) {
+  callService(service, type, args = {}, timeoutMs = 8000) {
     if (!this.connected) {
       return Promise.resolve(this.recordServiceResult(service, {
         ok: false,
@@ -386,14 +392,18 @@ export class RosbridgeClient extends EventEmitter {
     if (!pending) return;
     this.pendingServiceCalls.delete(payload.id);
     clearTimeout(pending.timer);
-    const values = payload.values ?? {};
+    const rawValues = payload.values;
+    const values = rawValues && typeof rawValues === 'object' && !Array.isArray(rawValues)
+      ? rawValues
+      : {};
     const transportOk = payload.result !== false;
     const serviceAccepted = values.accepted !== false && values.success !== false;
     const success = transportOk && serviceAccepted;
+    const transportMessage = typeof rawValues === 'string' ? rawValues : payload.message;
     const result = this.recordServiceResult(pending.service, {
       ok: transportOk,
       success,
-      message: String(values.message ?? (success ? 'accepted' : 'rejected')),
+      message: String(values.message ?? transportMessage ?? (success ? 'accepted' : 'rejected')),
       values
     });
     pending.resolve(result);

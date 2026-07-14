@@ -15,8 +15,8 @@ const defaults = {
     plinkPath: 'D:\\putty\\plink.exe'
   },
   control: {
-    maxLinearMps: 0.05,
-    maxAngularRps: 0.2,
+    maxLinearMps: 0.5,
+    maxAngularRps: 2,
     turnScale: -1,
     deadZone: 0.05,
     watchdogMs: 500,
@@ -44,8 +44,8 @@ const defaults = {
     overlaySetup: '/root/ros2_navigation_overlay/install/setup.bash',
     map: '/root/ros2_navigation_overlay/install/share/icar_navigation/maps/campus_map.yaml',
     routeFile: '/root/ros2_navigation_overlay/install/share/icar_navigation/config/patrol_route.yaml',
-    maxLinearMps: 0.05,
-    maxAngularRps: 0.2,
+    maxLinearMps: 0.5,
+    maxAngularRps: 2,
     autoStartPatrol: false
   },
   safety: {
@@ -54,8 +54,8 @@ const defaults = {
 };
 
 const controlSafetyCeiling = {
-  maxLinearMps: 0.1,
-  maxAngularRps: 0.4,
+  maxLinearMps: 0.5,
+  maxAngularRps: 2,
   watchdogMs: 500
 };
 

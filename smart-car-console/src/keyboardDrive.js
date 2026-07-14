@@ -19,7 +19,7 @@ export function keyboardVectorFromCodes(codes) {
   const active = codes instanceof Set ? codes : new Set(codes ?? []);
   const forward = axis(active, ['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']);
   const turn = axis(active, ['KeyD', 'ArrowRight'], ['KeyA', 'ArrowLeft']);
-  const strafe = axis(active, ['KeyE'], ['KeyQ']);
+  const strafe = axis(active, ['KeyQ'], ['KeyE']);
   return {
     forward,
     turn,

@@ -6,8 +6,8 @@ import select
 from typing import Iterable, Optional
 
 
-HARD_LINEAR_LIMIT = 0.35
-HARD_ANGULAR_LIMIT = 0.80
+HARD_LINEAR_LIMIT = 0.50
+HARD_ANGULAR_LIMIT = 2.00
 HARD_COMMAND_TIMEOUT_SEC = 0.30
 
 

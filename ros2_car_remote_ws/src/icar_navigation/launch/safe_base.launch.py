@@ -46,8 +46,8 @@ def generate_launch_description():
     arguments = [
         DeclareLaunchArgument('runtime_mode', default_value='base'),
         DeclareLaunchArgument('startup_grace_sec', default_value='5.0'),
-        DeclareLaunchArgument('max_linear', default_value='0.10'),
-        DeclareLaunchArgument('max_angular', default_value='0.40'),
+        DeclareLaunchArgument('max_linear', default_value='0.50'),
+        DeclareLaunchArgument('max_angular', default_value='2.00'),
         DeclareLaunchArgument('start_driver', default_value='true'),
         DeclareLaunchArgument('start_lidar', default_value='true'),
         DeclareLaunchArgument('lidar_frame', default_value='laser_link'),
@@ -60,9 +60,9 @@ def generate_launch_description():
             bringup_share, 'launch', 'icar_bringup_X3_launch.py')),
         launch_arguments={
             'start_driver': LaunchConfiguration('start_driver'),
-            'xlinear_limit': '0.35',
-            'ylinear_limit': '0.35',
-            'angular_limit': '0.80',
+            'xlinear_limit': '0.50',
+            'ylinear_limit': '0.50',
+            'angular_limit': '2.00',
             'command_timeout_sec': '0.30',
             'reconnect_interval_sec': '5.0',
         }.items(),

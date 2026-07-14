@@ -390,6 +390,45 @@ export function updateTelemetry(partial) {
   bus.emit('telemetry', updated);
 }
 
+export function clearMappingTelemetry() {
+  updateTelemetry({
+    map: {
+      connected: false,
+      mode: null,
+      frameId: null,
+      width: null,
+      height: null,
+      previewWidth: null,
+      previewHeight: null,
+      step: null,
+      resolution: null,
+      origin: { x: null, y: null, yaw: null },
+      occupied: 0,
+      free: 0,
+      unknown: 0,
+      cells: [],
+      updatedAt: null
+    },
+    globalCostmap: emptyGrid(),
+    localCostmap: emptyGrid(),
+    globalPath: emptyPath(),
+    localPath: emptyPath(),
+    patrolRoute: emptyPath(),
+    amclPose: emptyPose('map'),
+    tfPose: emptyPose('map'),
+    pose: {
+      connected: false,
+      frameId: 'map',
+      childFrameId: 'base_footprint',
+      source: null,
+      pose: { x: null, y: null, yaw: null },
+      linear: null,
+      angular: null,
+      updatedAt: null
+    }
+  });
+}
+
 export function clearPerceptionTelemetry() {
   updateTelemetry({
     camera: {

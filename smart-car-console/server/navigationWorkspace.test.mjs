@@ -14,6 +14,7 @@ function manager(options = {}) {
     rosbridge: {
       connected: true,
       stopManual: () => calls.push('zero'),
+      resetMappingSession: () => calls.push('reset-map'),
       callTrigger: async (service) => { calls.push(service); return { ok: true, success: true }; }
     },
     serviceManager: {
@@ -33,7 +34,7 @@ test('mode switch cancels and zeros before stopping and starting services', asyn
   const { instance, calls, getConfig } = manager();
   const operation = instance.startModeSwitch('mapping');
   await instance.waitForOperation(operation.operationId);
-  assert.deepEqual(calls, ['/navigation/cancel', 'zero', 'stop', 'save:mapping', 'start']);
+  assert.deepEqual(calls, ['/navigation/cancel', 'zero', 'reset-map', 'stop', 'save:mapping', 'start']);
   assert.equal(getConfig().navigation.mode, 'mapping');
   assert.equal(instance.currentOperation().status, 'SUCCEEDED');
 });
@@ -69,13 +70,13 @@ test('non-navigation modes allow idle map edits without a navigation status hear
   assert.doesNotThrow(() => instance.assertNavigationIdle());
 });
 
-test('running navigation requires a terminal coordinator state and cannot hot-swap maps', async () => {
+test('running navigation uses explicit activity and cannot hot-swap maps', async () => {
   const { instance } = manager({
     initialConfig: {
       navigation: { mode: 'navigation', map: '/root/maps/campus_map.yaml', routeFile: '/root/routes/campus_map.yaml' },
       safety: { motionWarningAcknowledgedAt: '2026-07-14T00:00:00.000Z' }
     },
-    getRuntime: () => ({ navigation: { goal: { state: 'UNKNOWN' } } })
+    getRuntime: () => ({ navigation: { goal: { state: 'NAVIGATING' }, action: { activeGoals: 1 } } })
   });
   assert.throws(() => instance.assertNavigationIdle(), /active/);
   await assert.rejects(() => instance.activateMap('next_map'), /Switch to safe_base or mapping/);

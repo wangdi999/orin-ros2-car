@@ -49,7 +49,7 @@ class TestMotionPolicy(unittest.TestCase):
             TwistCommand(2.0, -2.0, 5.0), 0.0))
         decision = settle_switch(self, policy, 0.0)
         self.assertEqual(decision.active_source, MANUAL)
-        self.assertEqual(decision.command, TwistCommand(0.10, -0.10, 0.40))
+        self.assertEqual(decision.command, TwistCommand(0.50, -0.50, 2.00))
 
     def test_navigation_lateral_motion_is_always_zero(self):
         policy = ready_policy()

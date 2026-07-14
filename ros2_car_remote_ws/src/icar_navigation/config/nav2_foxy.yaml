@@ -102,11 +102,11 @@ controller_server:
       debug_trajectory_details: true
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.10
+      max_vel_x: 0.50
       max_vel_y: 0.0
-      max_vel_theta: 0.40
+      max_vel_theta: 2.00
       min_speed_xy: 0.0
-      max_speed_xy: 0.10
+      max_speed_xy: 0.50
       min_speed_theta: 0.0
       acc_lim_x: 0.30
       acc_lim_y: 0.0
@@ -231,6 +231,6 @@ recoveries_server:
     transform_timeout: 0.20
     use_sim_time: false
     simulate_ahead_time: 2.0
-    max_rotational_vel: 0.40
+    max_rotational_vel: 2.00
     min_rotational_vel: 0.10
     rotational_acc_lim: 0.80

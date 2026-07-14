@@ -54,7 +54,7 @@
 ### Implementation for User Story 1
 
 - [X] T019 [US1] 在 `ros2_car_remote_ws/src/icar_bringup/icar_bringup/driver_safety.py` 实现可单测的驱动限幅、watchdog 和退避策略
-- [X] T020 [US1] 加固 `ros2_car_remote_ws/src/icar_bringup/icar_bringup/Mcnamu_driver_X3.py`：有限值、0.35/0.35/0.80 硬限、300 ms watchdog、启动/终止归零、串口健康、5 秒重连、10 Hz `/chassis/connected` 和 `/cmd_vel` 发布者身份 fail-closed 检查
+- [X] T020 [US1] 加固 `ros2_car_remote_ws/src/icar_bringup/icar_bringup/Mcnamu_driver_X3.py`：有限值、0.50/0.50/2.00 硬限、300 ms watchdog、启动/终止归零、串口健康、5 秒重连、10 Hz `/chassis/connected` 和 `/cmd_vel` 发布者身份 fail-closed 检查
 - [X] T021 [US1] 更新 `ros2_car_remote_ws/src/icar_bringup/{package.xml,setup.py,launch/icar_bringup_X3_launch.py}` 的依赖、参数和安全启动，强制 base node 不发布 odom TF
 - [X] T022 [US1] 在 `ros2_car_remote_ws/src/icar_base_node/include/icar_base_node/odometry_integrator.hpp` 与 `src/odometry_integrator.cpp` 实现防首帧/异常 `dt` 的 X3 积分和协方差模型
 - [X] T023 [US1] 在 `ros2_car_remote_ws/src/icar_base_node/src/base_node_X3.cpp` 订阅 `/vel_raw`、发布 `/odom_raw`，保留横移并默认禁止 TF

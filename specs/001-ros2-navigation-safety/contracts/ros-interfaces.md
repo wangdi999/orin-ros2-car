@@ -146,9 +146,9 @@ std_msgs/Empty result
 
 | Parameter | Default | Constraint |
 |---|---:|---|
-| `xlinear_limit` | 0.35 | `0 < value ≤ 0.35` |
-| `ylinear_limit` | 0.35 | `0 < value ≤ 0.35` |
-| `angular_limit` | 0.80 | `0 < value ≤ 0.80` |
+| `xlinear_limit` | 0.50 | `0 < value ≤ 0.50` |
+| `ylinear_limit` | 0.50 | `0 < value ≤ 0.50` |
+| `angular_limit` | 2.00 | `0 < value ≤ 2.00` |
 | `command_timeout_sec` | 0.30 | `0.05..0.30` |
 | `reconnect_interval_sec` | 5.0 | `≥ 1.0` |
 
@@ -158,8 +158,8 @@ std_msgs/Empty result
 |---|---:|---|
 | `manual_timeout_sec` | 0.30 | `≤ driver timeout` |
 | `nav_timeout_sec` | 0.30 | `≤ driver timeout` |
-| `max_linear_x/y` | 0.10 | `≤ 0.35`; first movement override to 0.05 |
-| `max_angular_z` | 0.40 | `≤ 0.80`; first movement override to 0.20 |
+| `max_linear_x/y` | 0.50 | `≤ 0.50`; first movement override to 0.05 |
+| `max_angular_z` | 2.00 | `≤ 2.00`; first movement override to 0.20 |
 | `zero_cycles_on_switch` | 1 | integer `≥ 1` |
 | `safety_state_timeout_sec` | 0.30 | all non-zero output fails closed if safety manager heartbeat stops |
 | `patrol_status_timeout_sec` | 0.30 | return-home authorization fails closed when stale |

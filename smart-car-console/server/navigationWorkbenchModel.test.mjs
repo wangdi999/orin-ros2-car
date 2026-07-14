@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { configuredMapId, emptyRoute, navigationBlockers, numericRoutePoint, setRoutePoint } from '../src/navigationWorkbench.js';
+import { configuredMapId, emptyRoute, navigationBlockers, navigationTaskActive, numericRoutePoint, setRoutePoint } from '../src/navigationWorkbench.js';
 
 test('workbench exposes concrete navigation blockers', () => {
   const blockers = navigationBlockers({
@@ -31,4 +31,25 @@ test('route editor keeps exactly Home plus three points', () => {
   const route = setRoutePoint(emptyRoute(), 3, { x: 2, y: 3, yaw: 1 });
   assert.equal(route.waypoints.length, 3);
   assert.deepEqual(route.waypoints[2], { name: 'Waypoint 3', x: 2, y: 3, yaw: 1 });
+});
+
+test('unknown unified goal is idle when patrol and Nav2 report no activity', () => {
+  const navigation = {
+    goal: { state: 'UNKNOWN' },
+    patrol: { state: 'IDLE' },
+    action: { status: 'UNKNOWN', activeGoals: 0 }
+  };
+  assert.equal(navigationTaskActive(navigation), false);
+  assert.equal(navigationBlockers({
+    config: { navigation: { mode: 'navigation', map: '/root/maps/campus_map.yaml' } },
+    navigation: { ...navigation, safetyState: 'READY' },
+    telemetry: { pose: { connected: true, stale: false } },
+    motionAcknowledged: true
+  }).includes('已有活动目标'), false);
+});
+
+test('explicit coordinator, patrol, or action activity still blocks a second goal', () => {
+  assert.equal(navigationTaskActive({ goal: { state: 'NAVIGATING' } }), true);
+  assert.equal(navigationTaskActive({ patrol: { state: 'WAITING' } }), true);
+  assert.equal(navigationTaskActive({ action: { status: 'UNKNOWN', activeGoals: 1 } }), true);
 });

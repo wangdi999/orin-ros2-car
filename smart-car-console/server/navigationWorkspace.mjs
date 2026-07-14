@@ -44,6 +44,10 @@ export class NavigationWorkspaceManager {
       if (this.rosbridge.connected) await this.rosbridge.callTrigger('/navigation/cancel');
       update('ZERO_VELOCITY', 'Publishing an explicit zero command');
       this.rosbridge.stopManual?.();
+      if (mode === 'mapping') {
+        update('RESET_MAPPING', 'Clearing the previous mapping session');
+        this.rosbridge.resetMappingSession?.();
+      }
       update('STOP_OLD_STACK', 'Stopping the previous runtime stack');
       const stopped = await this.serviceManager.stopServices();
       if (stopped?.ok === false) throw new Error(stopped.error || 'Failed to stop previous runtime stack');
@@ -213,9 +217,7 @@ export class NavigationWorkspaceManager {
   assertNavigationIdle() {
     const mode = this.getConfig().navigation?.mode;
     if (!['navigation', 'demo'].includes(mode)) return;
-    const goal = this.getRuntime()?.navigation?.goal;
-    const state = String(goal?.state ?? 'IDLE').toUpperCase();
-    if (!['IDLE', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT', 'REJECTED'].includes(state)) {
+    if (navigationTaskActive(this.getRuntime()?.navigation)) {
       throw apiError(409, 'NAVIGATION_ACTIVE', 'An autonomous navigation task is active', ['ACTIVE_GOAL']);
     }
   }
@@ -264,6 +266,15 @@ export class NavigationWorkspaceManager {
     if (!result.ok && throwOnFailure) throw apiError(502, 'REMOTE_COMMAND_FAILED', result.stderr || result.stdout || 'Remote command failed');
     return result;
   }
+}
+
+function navigationTaskActive(navigation = {}) {
+  const activeStates = new Set(['ACTIVE', 'ACCEPTED', 'EXECUTING', 'CANCELING', 'NAVIGATING', 'WAITING', 'NEXT_GOAL', 'CANCELLING']);
+  const states = [navigation?.goal?.state, navigation?.patrol?.state, navigation?.action?.status]
+    .map((state) => String(state ?? 'UNKNOWN').toUpperCase());
+  const activeGoals = Number(navigation?.action?.activeGoals ?? 0);
+  return states.some((state) => activeStates.has(state))
+    || (Number.isFinite(activeGoals) && activeGoals > 0);
 }
 
 function apiError(statusCode, code, message, blockers = []) {

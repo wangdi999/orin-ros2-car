@@ -314,7 +314,7 @@ stop_container_safely() {
     for setup in /opt/ros/foxy/setup.bash /root/icar_ros2_ws/icar_ws/install/setup.bash /root/icar_ros2_ws/software/library_ws/install/setup.bash /root/ros2_navigation_overlay/install/setup.bash; do
       [ -f \"\$setup\" ] && source \"\$setup\"
     done
-    timeout 3 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist ${zeroTwist}
+    timeout 3 ros2 topic pub --once /cmd_vel_manual geometry_msgs/msg/Twist ${zeroTwist}
   " >/tmp/smartcar_pre_restart_zero.log 2>&1 || true
   sleep 1
   docker exec "$target_cid" /bin/bash -c "pkill -TERM -f '[M]cnamu_driver_X3|[s]llidar_launch.py|[s]llidar_node|[c]md_vel_arbiter|[s]afety_manager|[p]atrol_manager|[c]artographer_node|[o]ccupancy_grid_node|[a]mcl|[c]ontroller_server|[p]lanner_server|[r]ecoveries_server|[b]t_navigator|[l]ifecycle_manager|[a]stra.launch.xml|[a]stra_camera|[r]osbridge_websocket_launch.xml|[r]osbridge_websocket|[r]osapi_node|[r]os2 launch icar_navigation' || true" || true
@@ -548,7 +548,11 @@ else
   fi
   docker exec -d "$cid" /bin/bash -c "$ros_setup; ros2 launch sllidar_ros2 sllidar_launch.py >/tmp/smartcar_lidar.log 2>&1"
 fi
-docker exec -d "$cid" /bin/bash -c "$ros_setup; ros2 launch rosbridge_server rosbridge_websocket_launch.xml >/tmp/smartcar_rosbridge.log 2>&1"
+if [ "$navigation_enabled" = '1' ]; then
+  docker exec -d "$cid" /bin/bash -c "$ros_setup; . $navigation_setup; ros2 launch rosbridge_server rosbridge_websocket_launch.xml >/tmp/smartcar_rosbridge.log 2>&1"
+else
+  docker exec -d "$cid" /bin/bash -c "$ros_setup; ros2 launch rosbridge_server rosbridge_websocket_launch.xml >/tmp/smartcar_rosbridge.log 2>&1"
+fi
 start_video_stream
 sleep 5
 if [ "$navigation_enabled" = '1' ]; then
@@ -626,8 +630,8 @@ function normalizeNavigationConfig(config = {}) {
       config.routeFile,
       '/root/ros2_navigation_overlay/install/share/icar_navigation/config/patrol_route.yaml'
     ),
-    maxLinearMps: clampNumber(config.maxLinearMps, 0.05, 0.1, 0.05),
-    maxAngularRps: clampNumber(config.maxAngularRps, 0.2, 0.4, 0.2)
+    maxLinearMps: clampNumber(config.maxLinearMps, 0.05, 0.5, 0.5),
+    maxAngularRps: clampNumber(config.maxAngularRps, 0.2, 2.0, 2.0)
   };
 }
 
@@ -687,9 +691,9 @@ set +e
 ${commonContainerLookup()}
 cid="$(find_container)"
 if [ -z "$cid" ]; then
-  echo 'No running icar container for fallback /cmd_vel publish' >&2
+  echo 'No running icar container for zero-only emergency fallback' >&2
   exit 20
 fi
-docker exec "$cid" bash -lc "for setup in /opt/ros/foxy/setup.bash /root/icar_ros2_ws/icar_ws/install/setup.bash /root/icar_ros2_ws/software/library_ws/install/setup.bash /root/ros2_ws/install/setup.bash; do [ -f \\"\\$setup\\" ] && source \\"\\$setup\\"; done; timeout 3 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist ${twist}"
+docker exec "$cid" bash -lc "for setup in /opt/ros/foxy/setup.bash /root/icar_ros2_ws/icar_ws/install/setup.bash /root/icar_ros2_ws/software/library_ws/install/setup.bash /root/ros2_navigation_overlay/install/setup.bash /root/ros2_ws/install/setup.bash; do [ -f \\"\\$setup\\" ] && source \\"\\$setup\\"; done; if ros2 node list 2>/dev/null | grep -Fxq /cmd_vel_arbiter && timeout 3 ros2 topic pub --once /cmd_vel_manual geometry_msgs/msg/Twist ${twist}; then exit 0; fi; timeout 3 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist ${twist}"
 `;
 }
