@@ -198,6 +198,18 @@ async function handleApi(req, res, url) {
     proxyVideo(req, res);
     return;
   }
+  if (req.method === 'GET' && url.pathname === '/api/ai-video') {
+    proxyAiVideo(req, res);
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/ai-alarms') {
+    proxyAiJson(req, res, '/api/alarms');
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/ai-perf') {
+    proxyAiJson(req, res, '/api/perf');
+    return;
+  }
   json(res, 404, { ok: false, error: 'Not found' });
 }
 
@@ -281,4 +293,44 @@ function json(res, statusCode, payload) {
     'cache-control': 'no-store'
   });
   res.end(JSON.stringify(payload));
+}
+
+function proxyAiVideo(req, res) {
+  const url = `http://${getConfig().car.host}:6501/video_feed`;
+  const upstream = http.get(url, { timeout: 10000 }, (upstreamRes) => {
+    res.writeHead(upstreamRes.statusCode ?? 200, {
+      'content-type': upstreamRes.headers['content-type'] ?? 'multipart/x-mixed-replace; boundary=frame',
+      'cache-control': 'no-store'
+    });
+    upstreamRes.pipe(res);
+  });
+  upstream.on('error', (error) => {
+    addLog('warn', 'ai-video', `AI video proxy failed: ${error.message}`);
+    if (!res.headersSent) json(res, 502, { ok: false, error: error.message });
+    else res.end();
+  });
+  req.on('close', () => upstream.destroy());
+}
+
+function proxyAiJson(req, res, path) {
+  const url = `http://${getConfig().car.host}:6501${path}`;
+  const upstream = http.get(url, { timeout: 10000 }, (upstreamRes) => {
+    let body = '';
+    upstreamRes.on('data', (chunk) => { body += chunk.toString('utf8'); });
+    upstreamRes.on('end', () => {
+      const status = upstreamRes.statusCode ?? 200;
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(body);
+    });
+  });
+  upstream.on('timeout', () => {
+    upstream.destroy();
+    addLog('warn', 'ai-api', `AI API timeout: ${path}`);
+    json(res, 504, { ok: false, error: 'Upstream timeout' });
+  });
+  upstream.on('error', (error) => {
+    addLog('warn', 'ai-api', `AI API proxy failed: ${error.message}`);
+    if (!res.headersSent) json(res, 502, { ok: false, error: error.message });
+    else res.end();
+  });
 }

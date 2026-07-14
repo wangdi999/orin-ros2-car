@@ -37,5 +37,8 @@ ros2_agent_ws/build/
 ros2_agent_ws/install/
 ros2_agent_ws/log/
 
+# Mobile APP (separate repo)
+smart-car-app/
+
 # Local deployment tools and keys
 .tools/
