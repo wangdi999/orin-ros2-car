@@ -132,6 +132,7 @@ jobs:
               source /opt/ros/foxy/setup.bash
               set -u
               colcon build --symlink-install
+              source install/setup.bash
               pytest -q src/
             '
 

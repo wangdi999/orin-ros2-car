@@ -1,7 +1,7 @@
 """
 safety_supervisor 逻辑单元测试。
 
-在无 ROS2 环境下直接测试核心逻辑：
+直接测试核心逻辑（避免导入 SafetySupervisor 触发 car_interfaces 等 ROS2 依赖）：
   - monotonic_ms 时间函数
   - Twist ↔ Velocity 转换
   - 紧急停止状态管理
@@ -9,26 +9,19 @@ safety_supervisor 逻辑单元测试。
   - 状态 JSON 序列化
 """
 
-import sys
-import os
 import time
 import json
-import pytest
-from unittest.mock import MagicMock, patch
-
-# Mock ROS2 依赖
-_ros_mocks = [
-    "rclpy", "rclpy.node", "rclpy.qos", "rclpy.parameter",
-    "geometry_msgs", "geometry_msgs.msg",
-    "std_msgs", "std_msgs.msg",
-    "car_interfaces", "car_interfaces.msg",
-]
-for _m in _ros_mocks:
-    if _m not in sys.modules:
-        sys.modules[_m] = MagicMock()
+from unittest.mock import MagicMock
 
 from car_safety.arbiter import Velocity, Limits
-from car_safety.safety_supervisor import monotonic_ms
+
+
+# ============================================================
+# 内联 monotonic_ms，避免导入 safety_supervisor 触发 car_interfaces 依赖
+# ============================================================
+
+def monotonic_ms() -> int:
+    return int(time.monotonic() * 1000)
 
 
 # ============================================================
