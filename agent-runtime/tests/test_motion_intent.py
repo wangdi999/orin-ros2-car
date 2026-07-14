@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from car_agent.api.app import create_app
-from car_agent.clients.motion_intent import parse_motion_intent_heuristic
+from car_agent.clients.motion_intent import MotionLimits, parse_motion_intent_heuristic
 from car_agent.config import Settings
 
 
@@ -50,6 +50,29 @@ def test_heuristic_motion_parser_rejects_turns() -> None:
     assert result.ok is False
     assert result.executable is False
     assert result.intent.action == "REJECT"
+
+
+def test_heuristic_motion_parser_reads_configured_speed_and_duration() -> None:
+    limits = MotionLimits(max_distance_m=1.0, max_speed_mps=0.1, max_duration_sec=10.0)
+
+    result = parse_motion_intent_heuristic(
+        "请让小车以每秒0.1米的速度向前行驶10秒",
+        limits=limits,
+    )
+
+    assert result.ok is True
+    assert result.intent.direction == "FORWARD"
+    assert result.intent.distance_m is None
+    assert result.intent.max_speed_mps == 0.1
+    assert result.intent.duration_sec == 10.0
+
+
+def test_heuristic_motion_parser_keeps_default_limits() -> None:
+    result = parse_motion_intent_heuristic("请让小车以每秒0.1米的速度向前行驶10秒")
+
+    assert result.ok is False
+    assert any("速度超过安全上限" in error for error in result.errors)
+    assert any("持续时间超过安全上限" in error for error in result.errors)
 
 
 def test_motion_parse_api_uses_safe_parser(tmp_path: Path) -> None:

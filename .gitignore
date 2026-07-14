@@ -4,6 +4,7 @@ logs/
 *.log
 .env
 .env.*
+!agent-runtime/.env.example
 .tmp/
 .remote-check/
 

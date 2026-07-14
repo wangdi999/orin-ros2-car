@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
@@ -9,9 +10,31 @@ from pydantic import ValidationError
 
 from car_agent.models.motion import MotionIntent, MotionParseResult
 
-MAX_DISTANCE_M = 0.30
-MAX_SPEED_MPS = 0.08
-MAX_DURATION_SEC = 8.0
+
+@dataclass(frozen=True)
+class MotionLimits:
+    max_distance_m: float = 0.30
+    max_speed_mps: float = 0.08
+    max_duration_sec: float = 8.0
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "max_distance_m": self.max_distance_m,
+            "max_speed_mps": self.max_speed_mps,
+            "max_duration_sec": self.max_duration_sec,
+        }
+
+
+DEFAULT_MOTION_LIMITS = MotionLimits()
+
+_SPEED_PATTERNS = (
+    re.compile(r"每\s*(?:秒|s)\s*([0-9]+(?:\.[0-9]+)?)\s*(?:米|m)", re.IGNORECASE),
+    re.compile(
+        r"([0-9]+(?:\.[0-9]+)?)\s*(?:米|m)\s*(?:每\s*(?:秒|s)|/\s*(?:秒|s))",
+        re.IGNORECASE,
+    ),
+    re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*mps", re.IGNORECASE),
+)
 
 
 class MotionIntentProvider(Protocol):
@@ -19,8 +42,11 @@ class MotionIntentProvider(Protocol):
 
 
 class HeuristicMotionIntentProvider:
+    def __init__(self, *, limits: MotionLimits = DEFAULT_MOTION_LIMITS) -> None:
+        self.limits = limits
+
     async def parse_motion_intent(self, text: str) -> MotionParseResult:
-        return parse_motion_intent_heuristic(text)
+        return parse_motion_intent_heuristic(text, limits=self.limits)
 
 
 class OpenAICompatibleMotionIntentProvider:
@@ -31,6 +57,7 @@ class OpenAICompatibleMotionIntentProvider:
         model: str,
         api_key: str,
         timeout_sec: float,
+        limits: MotionLimits = DEFAULT_MOTION_LIMITS,
     ) -> None:
         if not base_url or not model or not api_key:
             raise ValueError("LLM configuration is incomplete")
@@ -38,6 +65,7 @@ class OpenAICompatibleMotionIntentProvider:
         self.model = model
         self.api_key = api_key
         self.timeout_sec = timeout_sec
+        self.limits = limits
 
     async def parse_motion_intent(self, text: str) -> MotionParseResult:
         body = {
@@ -59,11 +87,7 @@ class OpenAICompatibleMotionIntentProvider:
                     "content": json.dumps(
                         {
                             "text": text,
-                            "limits": {
-                                "max_distance_m": MAX_DISTANCE_M,
-                                "max_speed_mps": MAX_SPEED_MPS,
-                                "max_duration_sec": MAX_DURATION_SEC,
-                            },
+                            "limits": self.limits.as_dict(),
                             "schema": {
                                 "action": "MOVE|STOP|EMERGENCY_STOP|REJECT",
                                 "direction": "FORWARD|BACKWARD|LEFT|RIGHT|null",
@@ -91,10 +115,14 @@ class OpenAICompatibleMotionIntentProvider:
         payload = response.json()
         content = payload["choices"][0]["message"]["content"]
         intent = _intent_from_payload(content)
-        return validate_motion_intent(intent, text=text, source="llm")
+        return validate_motion_intent(intent, text=text, source="llm", limits=self.limits)
 
 
-def parse_motion_intent_heuristic(text: str) -> MotionParseResult:
+def parse_motion_intent_heuristic(
+    text: str,
+    *,
+    limits: MotionLimits = DEFAULT_MOTION_LIMITS,
+) -> MotionParseResult:
     normalized = _normalize_text(text)
     if not normalized:
         return _reject(text, "EMPTY_COMMAND", "请输入运动指令。", source="heuristic")
@@ -104,12 +132,14 @@ def parse_motion_intent_heuristic(text: str) -> MotionParseResult:
             MotionIntent(action="EMERGENCY_STOP", reason="用户请求急停"),
             text=text,
             source="heuristic",
+            limits=limits,
         )
     if any(token in normalized for token in ("停止", "停车", "停下", "stop")):
         return validate_motion_intent(
             MotionIntent(action="STOP", reason="用户请求停车"),
             text=text,
             source="heuristic",
+            limits=limits,
         )
     if any(token in normalized for token in ("转", "旋转", "掉头", "角度", "导航", "巡检")):
         return _reject(
@@ -137,11 +167,12 @@ def parse_motion_intent_heuristic(text: str) -> MotionParseResult:
             source="heuristic",
         )
 
-    distance_m = _extract_distance_m(normalized)
+    speed_mps = _extract_speed_mps(normalized)
+    distance_m = _extract_distance_m(_remove_speed_expressions(normalized))
     duration_sec = _extract_duration_sec(normalized)
     if distance_m is None and duration_sec is None:
         distance_m = 0.10
-    speed_mps = min(MAX_SPEED_MPS, 0.05)
+    speed_mps = speed_mps if speed_mps is not None else min(limits.max_speed_mps, 0.05)
     return validate_motion_intent(
         MotionIntent(
             action="MOVE",
@@ -153,6 +184,7 @@ def parse_motion_intent_heuristic(text: str) -> MotionParseResult:
         ),
         text=text,
         source="heuristic",
+        limits=limits,
     )
 
 
@@ -161,6 +193,7 @@ def validate_motion_intent(
     *,
     text: str,
     source: str,
+    limits: MotionLimits = DEFAULT_MOTION_LIMITS,
 ) -> MotionParseResult:
     errors: list[str] = []
     warnings: list[str] = []
@@ -173,14 +206,22 @@ def validate_motion_intent(
             errors.append("MOVE 指令必须包含方向。")
         if intent.distance_m is None and intent.duration_sec is None:
             errors.append("MOVE 指令必须包含距离或持续时间。")
-        if intent.distance_m is not None and intent.distance_m > MAX_DISTANCE_M:
-            errors.append(f"距离超过安全上限 {MAX_DISTANCE_M:.2f} m。")
-        if intent.duration_sec is not None and intent.duration_sec > MAX_DURATION_SEC:
-            errors.append(f"持续时间超过安全上限 {MAX_DURATION_SEC:.1f} s。")
-        if intent.max_speed_mps is not None and intent.max_speed_mps > MAX_SPEED_MPS:
-            errors.append(f"速度超过安全上限 {MAX_SPEED_MPS:.2f} m/s。")
+        if intent.distance_m is not None and intent.distance_m > limits.max_distance_m:
+            errors.append(f"距离超过安全上限 {limits.max_distance_m:.2f} m。")
+        if intent.duration_sec is not None and intent.duration_sec > limits.max_duration_sec:
+            errors.append(f"持续时间超过安全上限 {limits.max_duration_sec:.1f} s。")
+        if intent.max_speed_mps is not None and intent.max_speed_mps > limits.max_speed_mps:
+            errors.append(f"速度超过安全上限 {limits.max_speed_mps:.2f} m/s。")
         if intent.max_speed_mps is None:
-            intent.max_speed_mps = min(MAX_SPEED_MPS, 0.05)
+            intent.max_speed_mps = min(limits.max_speed_mps, 0.05)
+        if intent.max_speed_mps <= 0:
+            errors.append("运动速度必须大于 0。")
+        if intent.duration_sec is not None and intent.max_speed_mps > 0:
+            implied_distance = intent.duration_sec * intent.max_speed_mps
+            if intent.distance_m is not None:
+                implied_distance = min(implied_distance, intent.distance_m)
+            if implied_distance > limits.max_distance_m + 1e-9:
+                errors.append(f"速度与时间对应的路程超过安全上限 {limits.max_distance_m:.2f} m。")
         warnings.append("执行前必须确认小车周围空旷或轮子悬空。")
         warnings.append("真实执行必须经 safety_supervisor 和 rosmaster_app_bridge。")
     elif intent.action == "STOP":
@@ -237,6 +278,20 @@ def _extract_distance_m(text: str) -> float | None:
 def _extract_duration_sec(text: str) -> float | None:
     match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(秒|s)", text)
     return float(match.group(1)) if match else None
+
+
+def _extract_speed_mps(text: str) -> float | None:
+    for pattern in _SPEED_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return float(match.group(1))
+    return None
+
+
+def _remove_speed_expressions(text: str) -> str:
+    for pattern in _SPEED_PATTERNS:
+        text = pattern.sub(" ", text)
+    return text
 
 
 def _reject(text: str, code: str, reason: str, *, source: str) -> MotionParseResult:

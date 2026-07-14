@@ -41,6 +41,21 @@ class Settings(BaseSettings):
         alias="ROS_GATEWAY_BASE_URL",
     )
     ros_gateway_timeout_sec: float = Field(default=3.0, alias="ROS_GATEWAY_TIMEOUT_SEC")
+    motion_max_distance_m: float = Field(
+        default=0.30,
+        gt=0,
+        alias="CAR_AGENT_MOTION_MAX_DISTANCE_M",
+    )
+    motion_max_speed_mps: float = Field(
+        default=0.08,
+        gt=0,
+        alias="CAR_AGENT_MOTION_MAX_SPEED_MPS",
+    )
+    motion_max_duration_sec: float = Field(
+        default=8.0,
+        gt=0,
+        alias="CAR_AGENT_MOTION_MAX_DURATION_SEC",
+    )
 
     llm_provider: Literal["mock", "openai_compatible"] = Field(
         default="mock",

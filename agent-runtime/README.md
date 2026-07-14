@@ -32,6 +32,7 @@ Authorization: Bearer <CAR_AGENT_TOKEN>
 - 实车 rosbridge Service 名称、类型和状态 Topic 未确认前，服务会拒绝启用真实网关。
 - Agent 不发布 `/cmd_vel`，急停和速度仲裁由 ROS2 Safety Supervisor 承担。
 - `locations.yaml` 中未标定的地点必须保持 `enabled: false`。
+- 自然语言运动默认限制为 `0.30 m`、`0.08 m/s` 和 `8 s`。需要扩大时必须在具体部署中显式设置 `CAR_AGENT_MOTION_MAX_DISTANCE_M`、`CAR_AGENT_MOTION_MAX_SPEED_MPS` 和 `CAR_AGENT_MOTION_MAX_DURATION_SEC`，宿主机运动网关也必须配置相同上限。
 
 ## 语音播报
 

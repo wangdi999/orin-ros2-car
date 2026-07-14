@@ -16,6 +16,7 @@ from car_agent.clients.asr_client import MimoSpeechRecognizer
 from car_agent.clients.llm_client import MockPlanProvider, OpenAICompatiblePlanProvider
 from car_agent.clients.motion_intent import (
     HeuristicMotionIntentProvider,
+    MotionLimits,
     OpenAICompatibleMotionIntentProvider,
     parse_motion_intent_heuristic,
     validate_motion_intent,
@@ -85,6 +86,11 @@ def _robot_event_announcement(event_type: str) -> str | None:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+    motion_limits = MotionLimits(
+        max_distance_m=settings.motion_max_distance_m,
+        max_speed_mps=settings.motion_max_speed_mps,
+        max_duration_sec=settings.motion_max_duration_sec,
+    )
     database = Database(settings.database_path)
     database.sync_locations_from_yaml(settings.locations_path)
     if settings.gateway_mode == "mock":
@@ -112,10 +118,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             model=settings.llm_model,
             api_key=settings.llm_api_key,
             timeout_sec=settings.llm_timeout_sec,
+            limits=motion_limits,
         )
     else:
         plan_provider = MockPlanProvider()
-        motion_intent_provider = HeuristicMotionIntentProvider()
+        motion_intent_provider = HeuristicMotionIntentProvider(limits=motion_limits)
 
     checkpoint_connection = sqlite3.connect(
         settings.checkpoint_path,
@@ -178,6 +185,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.events = events
     app.state.tts_notifier = tts_notifier
     app.state.motion_intent_provider = motion_intent_provider
+    app.state.motion_limits = motion_limits
     app.state.speech_recognizer = speech_recognizer
     app.state.speech_recognizer_error = speech_recognizer_error
 
@@ -221,6 +229,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "asr_enabled": settings.asr_enabled,
             "asr_configured": speech_recognizer is not None,
             "asr_model": settings.asr_model if settings.asr_enabled else "",
+            "motion_limits": motion_limits.as_dict(),
         }
 
     @app.get("/api/v1/locations", dependencies=[Depends(authorize)])
@@ -240,12 +249,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             thread_id=thread_id,
         )
         graph_input = {
-                "thread_id": thread_id,
-                "user_id": body.user_id,
-                "user_request": body.text,
-                "processed_event_ids": [],
-                "alarms": [],
-            }
+            "thread_id": thread_id,
+            "user_id": body.user_id,
+            "user_request": body.text,
+            "processed_event_ids": [],
+            "alarms": [],
+        }
         graph_config = {"configurable": {"thread_id": thread_id}}
         result = await asyncio.to_thread(
             active_graph().invoke,
@@ -287,7 +296,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             result = await provider.parse_motion_intent(body.text)
         except Exception as exc:
-            result = parse_motion_intent_heuristic(body.text)
+            result = parse_motion_intent_heuristic(body.text, limits=app.state.motion_limits)
             result.warnings.append(f"LLM 解析失败，已使用本地兜底解析：{exc}")
         database.add_audit(
             operator=body.user_id,
@@ -305,6 +314,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             body.intent.model_copy(deep=True),
             text=body.source_text or body.intent.reason or "motion execute",
             source="llm",
+            limits=app.state.motion_limits,
         )
         if not validation.ok or not validation.executable:
             database.add_audit(
