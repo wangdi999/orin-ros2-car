@@ -34,9 +34,11 @@ class GatewayBridgeNode(Node):
         self.declare_parameter("service_timeout_sec", 3.0)
         self.declare_parameter("status_stale_sec", 3.0)
         self.declare_parameter("nav_action_name", "navigate_to_pose")
+        self.declare_parameter("motion_topic", "/cmd_vel_teleop")
 
         self._service_timeout_sec = float(self.get_parameter("service_timeout_sec").value)
         self._status_stale_sec = float(self.get_parameter("status_stale_sec").value)
+        self._motion_topic = str(self.get_parameter("motion_topic").value)
         self._lock = threading.Lock()
         self._patrol_status: PatrolStatus | None = None
         self._patrol_status_at = 0.0
@@ -58,7 +60,7 @@ class GatewayBridgeNode(Node):
             str(self.get_parameter("nav_action_name").value),
         )
         self._estop_pub = self.create_publisher(Bool, "/safety/emergency_stop", 10)
-        self._teleop_pub = self.create_publisher(Twist, "/cmd_vel_teleop", 10)
+        self._teleop_pub = self.create_publisher(Twist, self._motion_topic, 10)
         self.create_subscription(PatrolStatus, "/patrol/status", self._on_patrol_status, 20)
         self.create_subscription(Bool, "/safety/emergency_stop", self._on_emergency_stop, 20)
         self.create_subscription(Bool, "/chassis/connected", self._on_chassis_connected, 20)
@@ -113,6 +115,7 @@ class GatewayBridgeNode(Node):
             "last_update": utc_now(),
             "nav_status": nav_status,
             "patrol_status_fresh": status_fresh,
+            "motion_topic": self._motion_topic,
         }
 
     def create_patrol(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -193,6 +196,7 @@ class GatewayBridgeNode(Node):
             "state": "RUNNING",
             "command_id": command_id,
             "duration_sec": command.duration_sec,
+            "motion_topic": self._motion_topic,
             "twist": {
                 "linear": {"x": command.linear_x, "y": command.linear_y, "z": 0.0},
                 "angular": {"x": 0.0, "y": 0.0, "z": command.angular_z},

@@ -10,6 +10,7 @@ def generate_launch_description():
             DeclareLaunchArgument("http_host", default_value="127.0.0.1"),
             DeclareLaunchArgument("http_port", default_value="8130"),
             DeclareLaunchArgument("nav_action_name", default_value="navigate_to_pose"),
+            DeclareLaunchArgument("motion_topic", default_value="/cmd_vel_teleop"),
             Node(
                 package="car_gateway",
                 executable="gateway_bridge",
@@ -20,6 +21,7 @@ def generate_launch_description():
                         "http_host": LaunchConfiguration("http_host"),
                         "http_port": LaunchConfiguration("http_port"),
                         "nav_action_name": LaunchConfiguration("nav_action_name"),
+                        "motion_topic": LaunchConfiguration("motion_topic"),
                     }
                 ],
             ),
