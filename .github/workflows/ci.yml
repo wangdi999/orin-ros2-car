@@ -135,7 +135,7 @@ jobs:
               set +u
               source install/setup.bash
               set -u
-              pytest -q src/
+              python3 -m pytest -q src/
             '
 
   integration:
